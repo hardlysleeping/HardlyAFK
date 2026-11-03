@@ -76,6 +76,7 @@ jobs:
           cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
             -fno-omit-frame-pointer -I. core/session/afk_session_state.c \
             core/environment/afk_env_catalog.c core/environment/afk_env_store.c \
+            core/distro/afk_sha256.c core/distro/afk_distro_catalog.c \
             core/api/afk_environment_api.c tests/host/afk_environment_api_test.c \
             -lsqlite3 -o /tmp/hardlyafk-env-api-test
           ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-env-api-test
