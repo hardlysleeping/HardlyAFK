@@ -42,7 +42,7 @@ jobs:
           timeout 90 ./build-arm64-linux/ish -f "$RUNNER_TEMP/alpine-fakefs" /bin/sh -c 'echo HardlyAFK-shell-ok; uname -m'
 
   unsigned-device-build:
-    runs-on: macos-15-arm64
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
