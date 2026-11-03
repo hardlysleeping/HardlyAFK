@@ -1,0 +1,23 @@
+name: Core contracts
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'core/**'
+      - 'tests/host/afk_session_state_test.c'
+      - '.github/workflows/core-contracts.yml'
+  workflow_dispatch:
+
+jobs:
+  session-state:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and exercise session lifecycle contract with sanitizers
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer -I. core/session/afk_session_state.c \
+            tests/host/afk_session_state_test.c -o /tmp/hardlyafk-session-test
+          /tmp/hardlyafk-session-test
