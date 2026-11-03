@@ -12,6 +12,7 @@ on:
       - 'tests/host/afk_environment_api_test.c'
       - 'tests/host/afk_distro_test.c'
       - 'tests/host/afk_install_test.c'
+      - 'tests/host/afk_desktop_test.c'
       - 'tools/afk-envctl.c'
       - '.github/workflows/core-contracts.yml'
   workflow_dispatch:
@@ -138,3 +139,21 @@ jobs:
             -lsqlite3 -o /tmp/hardlyafk-install-test
           ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-install-test \
             "$RUNNER_TEMP/alpine.tar.gz" "$RUNNER_TEMP/debian.tar.gz"
+
+  desktop-recipes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the Debian 13 arm64 package index
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/Packages.xz" \
+            http://deb.debian.org/debian/dists/trixie/main/binary-arm64/Packages.xz
+          xz -dc "$RUNNER_TEMP/Packages.xz" > "$RUNNER_TEMP/Packages"
+          grep -c '^Package: ' "$RUNNER_TEMP/Packages"
+      - name: Validate every desktop package against the live index
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+            -fno-omit-frame-pointer -I. core/desktop/afk_desktop_catalog.c \
+            tests/host/afk_desktop_test.c -o /tmp/hardlyafk-desktop-test
+          ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-desktop-test "$RUNNER_TEMP/Packages"
