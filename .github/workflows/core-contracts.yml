@@ -11,6 +11,7 @@ on:
       - 'tests/host/afk_envctl_test.sh'
       - 'tests/host/afk_environment_api_test.c'
       - 'tests/host/afk_distro_test.c'
+      - 'tests/host/afk_install_test.c'
       - 'tools/afk-envctl.c'
       - '.github/workflows/core-contracts.yml'
   workflow_dispatch:
@@ -81,23 +82,58 @@ jobs:
 
   distribution-pins:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Download the pinned Alpine rootfs
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/alpine.tar.gz" \
             https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-3.24.2-aarch64.tar.gz
-          sha256sum "$RUNNER_TEMP/alpine.tar.gz"
-      - name: Verify the archive with coreutils before trusting our own verifier
+      - name: Download the pinned Debian layer from the registry
         run: |
-          pin=9bf70a7f18ea44094cbb5f70c58f9af129c8214745743db0e68e5502cc2ce773
-          actual=$(sha256sum "$RUNNER_TEMP/alpine.tar.gz" | cut -d' ' -f1)
-          test "$actual" = "$pin" || { echo "upstream archive no longer matches the pin"; exit 1; }
-      - name: Cross-check the portable SHA-256 against coreutils and the pins
+          repo=library/debian
+          ref=trixie-slim
+          token=$(curl -fsS "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$repo:pull" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+          auth="Authorization: Bearer $token"
+          digest=$(curl -fsS -H "$auth" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+            "https://registry-1.docker.io/v2/$repo/manifests/$ref" \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next(m["digest"] for m in d["manifests"] if m["platform"]["architecture"]=="arm64" and m["platform"]["os"]=="linux"))')
+          echo "arm64 manifest: $digest"
+          layer=$(curl -fsS -H "$auth" \
+            -H 'Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+            "https://registry-1.docker.io/v2/$repo/manifests/$digest" \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["layers"][0]["digest"])')
+          echo "layer: $layer"
+          curl -fsSL --retry 3 -H "$auth" \
+            -H 'Accept: application/vnd.oci.image.layer.v1.tar+gzip' \
+            "https://registry-1.docker.io/v2/$repo/blobs/$layer" -o "$RUNNER_TEMP/debian.tar.gz"
+      - name: Verify both archives with coreutils before trusting our own verifier
+        run: |
+          alpine_pin=9bf70a7f18ea44094cbb5f70c58f9af129c8214745743db0e68e5502cc2ce773
+          debian_pin=2b70e040f7d132c8d366ee0223462552686510fb372ea5a83822973c30f19e36
+          alpine_actual=$(sha256sum "$RUNNER_TEMP/alpine.tar.gz" | cut -d' ' -f1)
+          debian_actual=$(sha256sum "$RUNNER_TEMP/debian.tar.gz" | cut -d' ' -f1)
+          echo "alpine $alpine_actual"
+          echo "debian $debian_actual"
+          test "$alpine_actual" = "$alpine_pin" || { echo "the Alpine pin no longer matches upstream"; exit 1; }
+          test "$debian_actual" = "$debian_pin" || { echo "the Debian layer digest changed: the tag moved, re-pin deliberately"; exit 1; }
+      - name: Cross-check the portable SHA-256 against coreutils and both pins
         run: |
           cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
             -fno-omit-frame-pointer -I. core/distro/afk_sha256.c \
             core/distro/afk_distro_catalog.c tests/host/afk_distro_test.c \
             -o /tmp/hardlyafk-distro-test
-          ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-distro-test "$RUNNER_TEMP/alpine.tar.gz"
+          ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-distro-test \
+            "$RUNNER_TEMP/alpine.tar.gz" "$RUNNER_TEMP/debian.tar.gz"
+      - name: Install both distributions into isolated environments
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+            -fno-omit-frame-pointer -I. core/distro/afk_sha256.c \
+            core/distro/afk_distro_catalog.c core/session/afk_session_state.c \
+            core/environment/afk_env_catalog.c core/environment/afk_env_store.c \
+            core/api/afk_environment_api.c tests/host/afk_install_test.c \
+            -lsqlite3 -o /tmp/hardlyafk-install-test
+          ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-install-test \
+            "$RUNNER_TEMP/alpine.tar.gz" "$RUNNER_TEMP/debian.tar.gz"

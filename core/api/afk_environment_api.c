@@ -81,6 +81,67 @@ int afk_api_create_environment(struct afk_api *api, const struct afk_env_spec *s
     return afk_store_create(api->catalog, spec, out, err, errlen);
 }
 
+int afk_api_install_environment(struct afk_api *api, const struct afk_distro *distro,
+                                const char *archive_path, const struct afk_unpacker *unpacker,
+                                const struct afk_env_spec *spec,
+                                struct afk_env_record *out, char *err, size_t errlen) {
+    if (out) memset(out, 0, sizeof *out);
+    if (!api || !distro || !archive_path || !*archive_path || !unpacker || !unpacker->unpack ||
+        !spec) {
+        api_error(err, errlen, "an api, distribution, archive, unpacker and spec are required");
+        return AFK_ENV_ERR_INVALID;
+    }
+    /* Installing writes a whole rootfs; refuse while a guest is running rather
+     * than competing with it for memory and storage on a phone. */
+    if (api->session.state != AFK_STOPPED) {
+        api_error(err, errlen, "stop the running environment before installing %s",
+                  distro->display_name);
+        return AFK_SESSION_BUSY;
+    }
+    if (strcmp(spec->architecture, distro->architecture) != 0) {
+        api_error(err, errlen, "%s %s is built for %s, not %s", distro->display_name,
+                  distro->version, distro->architecture, spec->architecture);
+        return AFK_ENV_ERR_INVALID;
+    }
+
+    /* Nothing is created until the bytes are the bytes we pinned. */
+    int rc = afk_distro_verify_archive(distro, archive_path, NULL, 0, err, errlen);
+    if (rc != AFK_DISTRO_OK) return rc;
+
+    struct afk_env_record record;
+    rc = afk_store_create(api->catalog, spec, &record, err, errlen);
+    if (rc != AFK_ENV_OK) return rc;
+
+    char root[AFK_ENV_PATH_MAX];
+    if (afk_catalog_resolve_root(api->catalog, &record, root, sizeof root) != AFK_ENV_OK) {
+        afk_store_delete(api->catalog, record.id, NULL, 0);
+        api_error(err, errlen, "environment path is not usable");
+        return AFK_ENV_ERR_INVALID;
+    }
+    /* The distribution unpacks into rootfs/, next to the environment's own
+     * metadata, so the guest never sees the catalog's files. */
+    char rootfs[AFK_ENV_PATH_MAX];
+    int written = snprintf(rootfs, sizeof rootfs, "%s/rootfs", root);
+    if (written < 0 || (size_t) written >= sizeof rootfs) {
+        afk_store_delete(api->catalog, record.id, NULL, 0);
+        api_error(err, errlen, "environment path is too long");
+        return AFK_ENV_ERR_INVALID;
+    }
+
+    char unpack_error[256] = {0};
+    if (unpacker->unpack(unpacker->context, archive_path, rootfs, unpack_error,
+                         sizeof unpack_error) != 0) {
+        /* A half-unpacked system must not stay in the list as if it worked. */
+        afk_store_delete(api->catalog, record.id, NULL, 0);
+        api_error(err, errlen, "unpacking %s %s failed: %s", distro->display_name,
+                  distro->version, unpack_error[0] ? unpack_error : "no detail from unpacker");
+        return AFK_API_ERR_BACKEND;
+    }
+
+    if (out) *out = record;
+    return AFK_ENV_OK;
+}
+
 int afk_api_delete_environment(struct afk_api *api, const char *id, char *err, size_t errlen) {
     if (!api || !afk_env_validate_uuid(id)) {
         api_error(err, errlen, "invalid environment id");

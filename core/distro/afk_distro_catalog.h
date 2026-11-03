@@ -17,23 +17,42 @@ enum afk_distro_status {
     AFK_DISTRO_EXPERIMENTAL = 2
 };
 
+enum afk_distro_source {
+    /* A plain file over HTTPS. */
+    AFK_SOURCE_DIRECT_URL = 0,
+    /*
+     * An OCI image layer. The download needs a registry token, so the app
+     * fetches it (URLSession / the platform HTTP stack) and hands the file to
+     * the core, which only ever sees bytes and a digest.
+     */
+    AFK_SOURCE_OCI_BLOB = 1
+};
+
 struct afk_distro {
     const char *id;
     const char *display_name;
     const char *version;
     const char *architecture;
-    const char *url;
-    const char *sha256; /* NULL while pin-required */
-    const char *rootfs_hint; /* what the archive is expected to be */
+    enum afk_distro_source source;
+    const char *url;               /* AFK_SOURCE_DIRECT_URL only */
+    const char *oci_repository;    /* e.g. "library/debian" */
+    const char *oci_reference;     /* tag used to find the blob, not trusted */
+    const char *oci_manifest_digest; /* manifest the layer digest was read from */
+    const char *sha256;            /* pin for the downloaded bytes, or NULL */
+    const char *rootfs_hint;       /* what the archive is expected to be */
     enum afk_distro_status status;
 };
 
+/*
+ * Each subsystem owns a band of result codes so a caller can switch on one
+ * value: environment -1..-5, API -6..-9, distribution -20..-23.
+ */
 enum afk_distro_result {
     AFK_DISTRO_OK = 0,
-    AFK_DISTRO_ERR_NOT_FOUND = -1,
-    AFK_DISTRO_ERR_UNPINNED = -2,
-    AFK_DISTRO_ERR_DIGEST_MISMATCH = -3,
-    AFK_DISTRO_ERR_IO = -4
+    AFK_DISTRO_ERR_NOT_FOUND = -20,
+    AFK_DISTRO_ERR_UNPINNED = -21,
+    AFK_DISTRO_ERR_DIGEST_MISMATCH = -22,
+    AFK_DISTRO_ERR_IO = -23
 };
 
 const struct afk_distro *afk_distro_all(size_t *count);

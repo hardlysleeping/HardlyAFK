@@ -1,6 +1,6 @@
 /*
  * Host regression for SHA-256 and the distribution pins.
- * usage: afk_distro_test /path/to/pinned-alpine-archive
+ * usage: afk_distro_test /path/to/alpine.tar.gz [/path/to/debian-layer.tar.gz]
  */
 #define _DEFAULT_SOURCE
 #include <assert.h>
@@ -73,10 +73,20 @@ static void test_lookup(void) {
     assert(strcmp(alpine->architecture, "aarch64") == 0);
     assert(afk_distro_find("alpine", NULL) == alpine);
 
+    /* Debian comes from an OCI layer, so it carries the registry provenance. */
     const struct afk_distro *debian = afk_distro_find("debian", "13");
     assert(debian != NULL);
-    assert(debian->status == AFK_DISTRO_PIN_REQUIRED);
-    assert(debian->sha256 == NULL);
+    assert(debian->status == AFK_DISTRO_SUPPORTED);
+    assert(debian->source == AFK_SOURCE_OCI_BLOB);
+    assert(debian->url == NULL);
+    assert(strcmp(debian->oci_repository, "library/debian") == 0);
+    assert(debian->oci_manifest_digest && strncmp(debian->oci_manifest_digest, "sha256:", 7) == 0);
+    assert(debian->sha256 && strlen(debian->sha256) == 64);
+
+    const struct afk_distro *arch = afk_distro_find("arch", "latest");
+    assert(arch != NULL);
+    assert(arch->status == AFK_DISTRO_PIN_REQUIRED);
+    assert(arch->sha256 == NULL);
 
     assert(afk_distro_find("alpine", "9.99") == NULL);
     assert(afk_distro_find("ubuntu", NULL) == NULL);
@@ -86,17 +96,17 @@ static void test_lookup(void) {
     /* An unpinned distribution is refused before any file is touched. */
     char err[512] = {0};
     char actual[65] = {0};
-    assert(afk_distro_verify_archive(debian, "/nonexistent/archive", actual, sizeof actual,
+    assert(afk_distro_verify_archive(arch, "/nonexistent/archive", actual, sizeof actual,
                                      err, sizeof err) == AFK_DISTRO_ERR_UNPINNED);
     assert(strstr(err, "no pinned checksum") != NULL);
 
-    printf("distro-catalog: alpine pinned, debian pin-required, lookups strict\n");
+    printf("distro-catalog: alpine and debian pinned, arch pin-required, lookups strict\n");
 }
 
-static void test_archive(const char *path) {
+static void test_archive(const struct afk_distro *which, const char *path) {
     char err[512] = {0};
     char actual[65] = {0};
-    const struct afk_distro *alpine = afk_distro_find("alpine", "3.24");
+    const struct afk_distro *alpine = which;
     assert(alpine != NULL);
 
     assert(afk_distro_verify_archive(alpine, path, actual, sizeof actual, err, sizeof err) ==
@@ -145,7 +155,8 @@ int main(int argc, char **argv) {
     }
     test_vectors();
     test_lookup();
-    test_archive(argv[1]);
+    test_archive(afk_distro_find("alpine", "3.24"), argv[1]);
+    if (argc > 2) test_archive(afk_distro_find("debian", "13"), argv[2]);
     printf("distro-test: PASS\n");
     return 0;
 }

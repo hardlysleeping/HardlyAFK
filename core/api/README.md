@@ -37,6 +37,19 @@ what makes the cross-platform split real instead of aspirational.
   marker keeps protecting it after the session stops.
 - **No background promise.** The API models iOS lifecycle honestly: you may suspend and later
   resume, but nothing here claims Linux keeps executing while the app is backgrounded.
+- **Installing verifies first.** `afk_api_install_environment` checks the archive against the
+  distribution's pin *before* it creates anything, so a corrupt or unpinned download cannot
+  touch an existing environment. It then creates the environment, asks the platform's unpacker
+  to extract into its `rootfs/`, and rolls the environment back out of the list and off disk if
+  unpacking fails. Installing is refused while a guest is running, and a guest of the wrong
+  architecture is refused outright.
+
+Unpacking is the one thing the core delegates: gzip needs the platform's decompressor, so the
+`afk_unpacker` hook receives an already-verified archive. The unpacker never decides whether a
+download was trustworthy, and the core never parses a tarball.
+
+Result bands are kept apart — environment -1..-5, API -6..-9, distribution -20..-23 — so a
+caller can switch on a single value returned by any of these calls.
 
 ## What it does not do
 

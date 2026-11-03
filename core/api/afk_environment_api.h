@@ -13,9 +13,14 @@
 
 #include <stddef.h>
 
+#include "core/distro/afk_distro_catalog.h"
 #include "core/environment/afk_env_catalog.h"
 #include "core/session/afk_session_state.h"
 
+/*
+ * Result bands: environment -1..-5, API -6..-9, distribution -20..-23, so a
+ * caller can switch on a single value from any of these calls.
+ */
 #define AFK_API_ERR_BACKEND (-6)
 #define AFK_API_ERR_NO_BACKEND (-7)
 
@@ -72,5 +77,36 @@ int afk_api_active_environment(struct afk_api *api, char out[AFK_ENV_ID_LEN + 1]
 int afk_api_list(struct afk_api *api, afk_env_visit_fn visit, void *context);
 /* The backend that was attached at open time; "" never occurs. */
 const char *afk_api_backend_name(const struct afk_api *api);
+
+/*
+ * Unpacking is the one place the core cannot help with: decompressing a
+ * tar.gz needs gzip, which the platform already has (libarchive or Foundation
+ * on Apple, the shell on Linux). The core verifies the bytes first and then
+ * hands a verified archive to this hook, so the unpacker never sees unverified
+ * input and never decides whether a download was trustworthy.
+ */
+struct afk_unpacker {
+    void *context;
+    /* Extracts archive_path into root_path. Returns 0 on success. */
+    int (*unpack)(void *context, const char *archive_path, const char *root_path,
+                  char *err, size_t errlen);
+};
+
+/*
+ * Installs a distribution into a new environment.
+ *
+ * Order is the contract: verify the digest, then create the environment, then
+ * unpack. A corrupt or unpinned archive is rejected before anything is created,
+ * so a failed download can never touch existing environments. A failed unpack
+ * removes the environment again rather than leaving a half-installed system in
+ * the list.
+ *
+ * Returns AFK_ENV_OK, an AFK_DISTRO_ERR_* verification code, AFK_ENV_ERR_* from
+ * the catalog, or AFK_API_ERR_BACKEND when the unpacker failed.
+ */
+int afk_api_install_environment(struct afk_api *api, const struct afk_distro *distro,
+                                const char *archive_path, const struct afk_unpacker *unpacker,
+                                const struct afk_env_spec *spec,
+                                struct afk_env_record *out, char *err, size_t errlen);
 
 #endif

@@ -7,13 +7,23 @@
 #include "afk_sha256.h"
 
 /*
- * Pins are the full lower-case SHA-256 of the archive named by url.
+ * Pins are the SHA-256 of the exact bytes the installer will unpack.
  *
- * Alpine is pinned and verified against the file actually downloaded from
- * dl-cdn.alpinelinux.org. Debian has no canonical aarch64 minirootfs tarball
- * with a stable published digest, so its entry stays pin-required until a
- * specific artifact is chosen and recorded here; the installer must refuse to
- * download it until then rather than installing something unverified.
+ * Alpine ships a minirootfs tarball, so url + sha256 are enough.
+ *
+ * Debian publishes no canonical aarch64 minirootfs tarball: the cdimage .tar.xz
+ * files wrap a disk image (verified: the archive contains a single member,
+ * disk.raw), and debootstrap output is not bit-reproducible. Debian therefore
+ * comes from the official debuerreotype-built OCI image, where the arm64 layer
+ * of debian:trixie-slim *is* the root filesystem and its digest is immutable at
+ * registry-1.docker.io even though the tag keeps moving.
+ *
+ * Verified at pin time:
+ *   debian trixie-slim arm64 layer  sha256 2b70e040...
+ *     30213496 bytes, 3266 entries, usr/bin/apt, usr/bin/dpkg, usr/bin/bash,
+ *     usr/sbin/useradd, etc/os-release, usr/bin/dash e_machine 183 (AArch64).
+ *   alpine 3.24 minirootfs         sha256 9bf70a7f...
+ *     4028030 bytes, digest also matches dl-cdn and coreutils in CI.
  */
 static const struct afk_distro kDistros[] = {
     {
@@ -21,6 +31,7 @@ static const struct afk_distro kDistros[] = {
         .display_name = "Alpine",
         .version = "3.24",
         .architecture = "aarch64",
+        .source = AFK_SOURCE_DIRECT_URL,
         .url = "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/"
                "alpine-minirootfs-3.24.2-aarch64.tar.gz",
         .sha256 = "9bf70a7f18ea44094cbb5f70c58f9af129c8214745743db0e68e5502cc2ce773",
@@ -32,9 +43,23 @@ static const struct afk_distro kDistros[] = {
         .display_name = "Debian",
         .version = "13",
         .architecture = "aarch64",
+        .source = AFK_SOURCE_OCI_BLOB,
+        .oci_repository = "library/debian",
+        .oci_reference = "trixie-slim",
+        .oci_manifest_digest = "sha256:1470991b497d26788dc4d6f438bf5690c6ba0d499235d237e55f4b43caea7a75",
+        .sha256 = "2b70e040f7d132c8d366ee0223462552686510fb372ea5a83822973c30f19e36",
+        .rootfs_hint = "Debian 13 (trixie) slim rootfs, glibc, apt, dpkg",
+        .status = AFK_DISTRO_SUPPORTED,
+    },
+    {
+        .id = "arch",
+        .display_name = "Arch Linux",
+        .version = "latest",
+        .architecture = "aarch64",
+        .source = AFK_SOURCE_DIRECT_URL,
         .url = NULL,
         .sha256 = NULL,
-        .rootfs_hint = "Debian 13 (trixie) aarch64 rootfs, glibc, apt",
+        .rootfs_hint = "Arch Linux ARM aarch64 rootfs, pacman",
         .status = AFK_DISTRO_PIN_REQUIRED,
     },
 };
