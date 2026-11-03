@@ -7,6 +7,9 @@ on:
       - 'core/**'
       - 'tests/host/afk_session_state_test.c'
       - 'tests/host/afk_env_catalog_test.c'
+      - 'tests/host/afk_env_store_test.c'
+      - 'tests/host/afk_envctl_test.sh'
+      - 'tools/afk-envctl.c'
       - '.github/workflows/core-contracts.yml'
   workflow_dispatch:
 
@@ -36,3 +39,24 @@ jobs:
             -fno-omit-frame-pointer -I. core/environment/afk_env_catalog.c \
             tests/host/afk_env_catalog_test.c -lsqlite3 -o /tmp/hardlyafk-env-catalog-test
           ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-env-catalog-test
+
+  environment-store:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SQLite development headers
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - name: Exercise directory creation, isolation, usage and safe removal
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+            -fno-omit-frame-pointer -I. core/environment/afk_env_catalog.c \
+            core/environment/afk_env_store.c tests/host/afk_env_store_test.c \
+            -lsqlite3 -o /tmp/hardlyafk-env-store-test
+          ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-env-store-test
+      - name: Drive the lifecycle through afk-envctl
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I. core/environment/afk_env_catalog.c \
+            core/environment/afk_env_store.c tools/afk-envctl.c -lsqlite3 \
+            -o /tmp/hardlyafk-afk-envctl
+          sh tests/host/afk_envctl_test.sh /tmp/hardlyafk-afk-envctl

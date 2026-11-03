@@ -26,10 +26,36 @@ hand-rolled JSON rewrite per change.
 
 ## What this layer does NOT do
 
-It does not create, mount or run a guest. Materialising the fakefs at
-`afk_catalog_resolve_root()`, creating the user, and wiring the state machine in
-`core/session` to the iSH runtime are host responsibilities that require the Apple build and
-a physical device. A passing host test here is not evidence that Linux boots.
+`afk_env_store` does create and remove the directory tree
+(`environments/<uuid>/rootfs`) and measure its usage, but it does not populate that
+directory with a fakefs, create a user, or run a guest. Wiring the state machine in
+`core/session` to the iSH runtime is a host responsibility that requires the Apple build
+and a physical device. A passing host test here is not evidence that Linux boots.
+
+Deletion is deliberately conservative: it walks with `openat(..., O_NOFOLLOW)` so a symlink
+planted inside an environment cannot redirect the removal outside the tree, and it removes
+metadata before the tree so a crash leaves an orphaned directory rather than a row pointing
+at nothing.
+
+## Command-line proof
+
+`tools/afk-envctl` exposes exactly the calls the Apple UI will make, so the multi-environment
+behaviour can be exercised on any machine:
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -I. core/environment/afk_env_catalog.c \
+  core/environment/afk_env_store.c tools/afk-envctl.c -lsqlite3 -o /tmp/afk-envctl
+
+/tmp/afk-envctl --root /tmp/afk create --name "Debian A" --distro debian --version 13
+/tmp/afk-envctl --root /tmp/afk list
+/tmp/afk-envctl --root /tmp/afk activate <id>
+/tmp/afk-envctl --root /tmp/afk delete <id>
+```
+
+`tests/host/afk_envctl_test.sh` runs the acceptance shape from the plan end to end: two
+environments created, files isolated between them, a restart re-reading the same catalog,
+rename without moving data, the active environment refusing deletion, and independent
+deletion of the others.
 
 ## Build and test
 
