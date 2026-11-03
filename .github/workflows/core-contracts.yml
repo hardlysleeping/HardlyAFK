@@ -6,6 +6,7 @@ on:
     paths:
       - 'core/**'
       - 'tests/host/afk_session_state_test.c'
+      - 'tests/host/afk_env_catalog_test.c'
       - '.github/workflows/core-contracts.yml'
   workflow_dispatch:
 
@@ -21,3 +22,17 @@ jobs:
             -fno-omit-frame-pointer -I. core/session/afk_session_state.c \
             tests/host/afk_session_state_test.c -o /tmp/hardlyafk-session-test
           /tmp/hardlyafk-session-test
+
+  environment-catalog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SQLite development headers
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - name: Compile and exercise environment catalog with sanitizers
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+            -fno-omit-frame-pointer -I. core/environment/afk_env_catalog.c \
+            tests/host/afk_env_catalog_test.c -lsqlite3 -o /tmp/hardlyafk-env-catalog-test
+          ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-env-catalog-test
