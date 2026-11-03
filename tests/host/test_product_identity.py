@@ -8,6 +8,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class ProductIdentity(unittest.TestCase):
+    def test_fork_keeps_upstream_license_and_provenance(self):
+        license_text = (ROOT / "LICENSE.md").read_text()
+        ios_terms = (ROOT / "LICENSE.IOS").read_text()
+        self.assertIn("GPLv3", license_text)
+        self.assertIn("App Store", ios_terms)
+        self.assertTrue((ROOT / ".gitmodules").is_file())
+        self.assertIn("abe413540d4ff8b4ad6b52447ab80f824c58495f", (ROOT / "docs/UPSTREAM.md").read_text())
+
     def test_bundle_id_and_display_name(self):
         config = (ROOT / "app/iSH.xcconfig").read_text()
         self.assertRegex(config, r"(?m)^ROOT_BUNDLE_IDENTIFIER = ing\.hardlysleep\.HardlyAFK$")

@@ -21,6 +21,26 @@ on:
       - '.github/workflows/ios-build.yml'
 
 jobs:
+  arm64-linux-shell:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build ARM64 Linux reference runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang meson ninja-build pkg-config libsqlite3-dev libarchive-dev
+          CC=clang make build-arm64-linux
+      - name: Verify pinned Alpine rootfs and boot a disposable shell
+        run: |
+          curl -fL --retry 3 -o "$RUNNER_TEMP/alpine.tar.gz" \
+            https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-3.24.2-aarch64.tar.gz
+          echo '9bf70a7f18ea44094cbb5f70c58f9af129c8214745743db0e68e5502cc2ce773  '"$RUNNER_TEMP/alpine.tar.gz" | sha256sum -c -
+          ./build-arm64-linux/tools/fakefsify "$RUNNER_TEMP/alpine.tar.gz" "$RUNNER_TEMP/alpine-fakefs"
+          timeout 90 ./build-arm64-linux/ish -f "$RUNNER_TEMP/alpine-fakefs" /bin/sh -c 'echo HardlyAFK-shell-ok; uname -m'
+
   unsigned-device-build:
     runs-on: macos-15
     timeout-minutes: 60
