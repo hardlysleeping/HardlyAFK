@@ -10,6 +10,7 @@ on:
       - 'tests/host/afk_env_store_test.c'
       - 'tests/host/afk_envctl_test.sh'
       - 'tests/host/afk_environment_api_test.c'
+      - 'tests/host/afk_distro_test.c'
       - 'tools/afk-envctl.c'
       - '.github/workflows/core-contracts.yml'
   workflow_dispatch:
@@ -77,3 +78,26 @@ jobs:
             core/api/afk_environment_api.c tests/host/afk_environment_api_test.c \
             -lsqlite3 -o /tmp/hardlyafk-env-api-test
           ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-env-api-test
+
+  distribution-pins:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the pinned Alpine rootfs
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/alpine.tar.gz" \
+            https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-3.24.2-aarch64.tar.gz
+          sha256sum "$RUNNER_TEMP/alpine.tar.gz"
+      - name: Verify the archive with coreutils before trusting our own verifier
+        run: |
+          pin=9bf70a7f18ea44094cbb5f70c58f9af129c8214745743db0e68e5502cc2ce773
+          actual=$(sha256sum "$RUNNER_TEMP/alpine.tar.gz" | cut -d' ' -f1)
+          test "$actual" = "$pin" || { echo "upstream archive no longer matches the pin"; exit 1; }
+      - name: Cross-check the portable SHA-256 against coreutils and the pins
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+            -fno-omit-frame-pointer -I. core/distro/afk_sha256.c \
+            core/distro/afk_distro_catalog.c tests/host/afk_distro_test.c \
+            -o /tmp/hardlyafk-distro-test
+          ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-distro-test "$RUNNER_TEMP/alpine.tar.gz"
