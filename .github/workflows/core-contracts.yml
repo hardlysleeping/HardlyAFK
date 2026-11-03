@@ -9,6 +9,7 @@ on:
       - 'tests/host/afk_env_catalog_test.c'
       - 'tests/host/afk_env_store_test.c'
       - 'tests/host/afk_envctl_test.sh'
+      - 'tests/host/afk_environment_api_test.c'
       - 'tools/afk-envctl.c'
       - '.github/workflows/core-contracts.yml'
   workflow_dispatch:
@@ -60,3 +61,19 @@ jobs:
             core/environment/afk_env_store.c tools/afk-envctl.c -lsqlite3 \
             -o /tmp/hardlyafk-afk-envctl
           sh tests/host/afk_envctl_test.sh /tmp/hardlyafk-afk-envctl
+
+  environment-api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SQLite development headers
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      - name: Drive the lifecycle through the runtime-facing API with a mock backend
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+            -fno-omit-frame-pointer -I. core/session/afk_session_state.c \
+            core/environment/afk_env_catalog.c core/environment/afk_env_store.c \
+            core/api/afk_environment_api.c tests/host/afk_environment_api_test.c \
+            -lsqlite3 -o /tmp/hardlyafk-env-api-test
+          ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-env-api-test
