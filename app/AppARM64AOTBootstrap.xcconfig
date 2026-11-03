@@ -1,7 +1,7 @@
 #include "AppARM64.xcconfig"
 
 // Compile and inspect the native ABI without executing unvalidated images.
-PRODUCT_NAME = LinuxKit AOT Bootstrap
+PRODUCT_NAME = HardlyAFK AOT Bootstrap
 PRODUCT_BUNDLE_IDENTIFIER = $(ROOT_BUNDLE_IDENTIFIER).aot-bootstrap
 PRODUCT_APP_GROUP_IDENTIFIER = group.$(ROOT_BUNDLE_IDENTIFIER).aot-bootstrap
 CODE_SIGN_ENTITLEMENTS = app/AOTBootstrap.entitlements

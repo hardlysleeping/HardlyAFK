@@ -1,0 +1,60 @@
+name: iOS compile check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'app/**'
+      - 'asbestos/**'
+      - 'deps/**'
+      - 'emu/**'
+      - 'fs/**'
+      - 'kernel/**'
+      - 'platform/**'
+      - 'util/**'
+      - 'vdso/**'
+      - 'iSH.xcodeproj/**'
+      - 'meson.build'
+      - 'meson_options.txt'
+      - 'tests/host/test_product_identity.py'
+      - '.github/workflows/ios-build.yml'
+
+jobs:
+  unsigned-device-build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install independent build tools
+        run: brew install meson ninja
+      - name: Check fork identity and rootfs importer
+        run: |
+          python3 -m unittest discover -s tests/host -p 'test_product_identity.py' -v
+          make test-rootfs-download
+      - name: Compile unsigned iOS device app (not installable)
+        run: |
+          xcodebuild -project iSH.xcodeproj \
+            -scheme iSH-ARM64 \
+            -configuration Debug-ApplePleaseFixFB19282108 \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/HardlyAFK-DD" \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+            build
+      - name: Validate compiled product identity and rootfs
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, plistlib
+          products = pathlib.Path(os.environ['RUNNER_TEMP']) / 'HardlyAFK-DD/Build/Products'
+          apps = list(products.glob('*/HardlyAFK.app'))
+          assert len(apps) == 1, apps
+          app = apps[0]
+          info = plistlib.loads((app/'Info.plist').read_bytes())
+          assert info['CFBundleIdentifier'] == 'ing.hardlysleep.HardlyAFK', info
+          assert info['CFBundleDisplayName'] == 'HardlyAFK', info
+          assert (app/'root.tar.gz').is_file(), 'bundled Alpine rootfs missing'
+          print('Verified', app, info['CFBundleIdentifier'], info['CFBundleShortVersionString'])
+          PY

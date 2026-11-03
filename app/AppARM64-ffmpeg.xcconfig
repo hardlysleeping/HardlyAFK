@@ -1,7 +1,7 @@
 #include "AppARM64.xcconfig"
 
 // iSH ARM64 ffmpeg test target: enables built-in native handlers (fake_ffmpeg)
-PRODUCT_NAME = iSH ARM64 ffmpeg
+PRODUCT_NAME = HardlyAFK ARM64 ffmpeg
 PRODUCT_BUNDLE_IDENTIFIER = $(ROOT_BUNDLE_IDENTIFIER).arm64.ffmpeg
 PRODUCT_APP_GROUP_IDENTIFIER = group.$(ROOT_BUNDLE_IDENTIFIER).arm64.ffmpeg
 

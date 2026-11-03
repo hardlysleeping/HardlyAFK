@@ -1,171 +1,26 @@
-# ios-linuxkit
+# HardlyAFK
 
-![ios-linuxkit icon](docs/icon-256.png)
+HardlyAFK aims to manage multiple independent ARM64 Linux systems on iPhone and iPad, with both terminal and X11 desktop sessions. It is an early development fork of [rcarmo/ios-linuxkit](https://github.com/rcarmo/ios-linuxkit), itself derived from [iSH](https://ish.app/). It is not yet an MVP, an App Store app, or a proven Linux desktop on iOS.
 
-`ios-linuxkit` runs an AArch64 Linux userland inside an iOS app and as a command-line process on an AArch64 Linux host. It derives from [iSH](https://ish.app/) and uses iSH's userspace kernel, filesystems and Asbestos threaded-code interpreter.
+Current development milestone: preserve and rebrand the upstream Alpine ARM64 terminal, verify an unsigned iOS device build, then test boot/network/persistence on a physical iPhone. The upstream already supports multiple importable/exportable Linux roots; HardlyAFK's environment model and desktop viewer are not implemented yet.
 
-**Read the announcement: [Announcing ios-linuxkit: Linux on iPad, the Hard Way](https://taoofmac.com/space/blog/2026/05/16/1130).**
+Planned dependency chain: physical iPhone shell → environment API and multiple isolated environments → Debian installer → X11 proof → interactive viewer → Openbox/LXQt → Plasma X11 → application launcher and recovery. Android, GNOME, Wayland and Metal are not MVP work.
 
-## Why this exists
+## Build and test
 
-> I’m done waiting for Apple to fix things. And one of the things I think should exist is a decent way to run Linux binaries on my iPad.
-
-An expensive iPad has hardware capable of far more than iOS allows: a cheap ARM board can run containers and virtual machines, while Apple keeps hypervisor access locked away. A POSIX shell, a package manager and local development tools should not require a jailbreak, a remote server or Apple's permission to use hardware you own.
-
-The aim is to run shells, compilers, language runtimes and agent/CLI tools **locally**, with the workspace on the device—not through a UI proxied from somewhere else. The default interpreter works within iOS's restrictions without JIT, RWX memory or `MAP_JIT`; it trades native speed for a usable Linux environment.
-
-This is a reusable runtime kit. The terminal is a reference shell; the runtime and reproducible Linux-host tests are there so other developers can build better tools. I have no plans to publish it on the App Store myself. The point is to keep it open, fixable and useful on our own devices.
-
-## Current state
-
-The current source version is **2.5.2** with Apple build number **826**. The repository supports ARM64 Linux programs. Ordinary builds use the interpreter. Optional ahead-of-time (AOT) builds include translated Linux code in the application executable, without generating executable code at runtime. The accelerated iOS build includes Bun and the Go toolchain; code without a matching translation uses the interpreter.
-
-## What is in the repository
-
-- an ARM64 instruction decoder and AArch64 host gadgets under `asbestos/guest-arm64/`;
-- a 48-bit guest address space, Linux syscall layer, signals, sockets and fakefs;
-- the `iSH-ARM64` iOS application target, xterm.js terminal frontend (with Ghostty Web also available) and an `iSH-ARM64-ffmpeg` integration target;
-- Linux-host builds for development and regression testing;
-- staged tests for instructions, syscalls, language runtimes and command-line packages;
-- startup-only cooperative offload APIs with guest VFS/token ownership and
-  restricted TCP streams; no production cooperative handler registration.
-
-The iOS app is a reference terminal and packaging target. The outer iOS sandbox is the security boundary; read [SECURITY.md](SECURITY.md) before embedding the runtime or exposing guest workloads to untrusted input.
-
-## Quick start on AArch64 Linux
-
-Install Clang, Meson, Ninja, pkg-config, SQLite development files and libarchive development files. On Debian or Ubuntu:
+The iOS build needs macOS/Xcode with Meson and Ninja. Linux runtime tests need an AArch64 host; x86-64 Linux cannot execute the upstream AArch64 gadget engine. A locally unsigned `.app` compiled by CI cannot be installed on a normal iPhone without compatible signing and provisioning.
 
 ```sh
-sudo apt install \
-  clang make meson ninja-build pkg-config git curl file tar \
-  libsqlite3-dev libarchive-dev
+git clone --recurse-submodules https://github.com/hardlysleeping/HardlyAFK.git
+cd HardlyAFK
+python3 -m unittest discover -s tests/host -p 'test_product_identity.py' -v
+make test-rootfs-download
 ```
 
-Clone the submodules and build:
+On macOS, build the existing `iSH-ARM64` scheme with Xcode; see [upstream's iOS build guide](docs/IOS_APPLICATION.md) for its dependency and signing constraints. The fork's `.github/workflows/ios-build.yml` checks an unsigned device compile, not an iPhone installation. The bundled Alpine archive is pinned by SHA-256 in `app/GuestARM64.xcconfig`. No publishing or upstream Fastlane credentials are configured.
 
-```sh
-git clone --recurse-submodules https://github.com/rcarmo/ios-linuxkit.git
-cd ios-linuxkit
-CC=clang make build-arm64-linux
-```
+## Security, licensing, provenance
 
-Run against the host filesystem:
+Linux guest users are not security principals: the emulator does not confine hostile guest code inside the host app. See [upstream limitations](docs/LIMITATIONS.md) and [security notes](SECURITY.md). Distribution with arbitrary downloaded packages and guest software has App Review uncertainty; approval is not assumed.
 
-```sh
-./build-arm64-linux/ish -r / /bin/echo hello
-```
-
-To create an Alpine fakefs, download the root filesystem named in `app/GuestARM64.xcconfig`, then import it:
-
-```sh
-curl -fLO https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-3.24.2-aarch64.tar.gz
-echo '9bf70a7f18ea44094cbb5f70c58f9af129c8214745743db0e68e5502cc2ce773  alpine-minirootfs-3.24.2-aarch64.tar.gz' | sha256sum -c -
-./build-arm64-linux/tools/fakefsify \
-  alpine-minirootfs-3.24.2-aarch64.tar.gz \
-  alpine-arm64-fakefs
-./build-arm64-linux/ish -f ./alpine-arm64-fakefs /bin/sh
-```
-
-`fakefsify` is built when Meson finds libarchive. Existing build directories retain their original Meson configuration; remove or reconfigure them when changing the compiler or build type.
-
-## Build and test commands
-
-| Task | Command |
-|---|---|
-| Build release | `CC=clang make build-arm64-linux` |
-| Build release and debug | `CC=clang make build-arm64-linux-all` |
-| Check documentation links | `make check-docs` |
-| Test AdvSIMD FP widening and narrowing | `CC=clang make test-arm64-fcvt-vector` |
-| Test `/proc/<pid>/mem` seek semantics | `CC=clang make test-arm64-proc-mem-seek` |
-| Test full-width seeks and Python sparse files | `CC=clang make test-arm64-lseek-width` |
-| Test signal delivery to guest computation | `CC=clang make test-arm64-poke-stress` |
-| Test precise load fault-PC and retry state | `CC=clang make test-arm64-load64-fault-pc` |
-| Test full procfs/exit stress and lock/lookup regressions | `CC=clang make test-arm64-proc-exit-race` |
-| Test imported correctness, lifetime and failure handling | `CC=clang make test-arm64-upstream` |
-| Run staged runtime coverage | `make test-arm64-runtime-coverage` |
-| Run coverage with the debug binary | `make test-arm64-runtime-coverage-debug` |
-| Run CLI corner cases | `make test-arm64-cli-corner-smoke` |
-| Run npm CLI coverage | `make test-arm64-npm-cli-runtime-coverage` |
-| Measure Node and Bun | `make test-arm64-node-bun-perf` |
-
-The runtime and CLI targets can install packages into their fakefs. Use a disposable copy when package state matters. Reports are written to `REPORT_DIR`, which defaults to `/workspace/tmp`.
-
-## AOT builds
-
-AOT is optional. Translations are generated before building the application
-and linked into its executable. Programs and code paths without matching
-translations use the interpreter.
-
-### iPhone and iPad
-
-The `iSH-ARM64-AOT-Bootstrap` scheme builds a separate experimental app with
-Alpine 3.24.2, Bun 1.4.2 and Go 1.26.8-r0. It includes AOT support for:
-
-| Component | Supported code |
-|---|---|
-| musl | Linux C library and dynamic loader. |
-| BusyBox | Shell and basic command-line utilities. |
-| Bun | JavaScript runtime. |
-| Go | Go command, formatter, compiler, assembler, linker and vet tool. |
-
-Go is bundled from Alpine's pinned ARM64 APK, including standard-library
-sources. Pure-Go builds are enabled by default; CGo requires additional Alpine
-packages. First-time compilation can still take several minutes. Later builds
-reuse Go's build cache. Programs compiled in the guest use the interpreter
-unless they have their own matching AOT translations.
-
-Follow the [accelerated iOS build guide](docs/NATIVE_AOT_IOS.md) for recording,
-building, signing and device checks. The ordinary iOS schemes continue to use
-the interpreter. The accelerated build remains experimental, and the reported
-Bun/Pi iPhone crash is still under investigation.
-
-App updates preserve existing Linux files and installed packages. Existing
-filesystems do not gain Bun or Go automatically. Package upgrades can replace
-files used by AOT translations; unmatched code uses the interpreter.
-
-### Linux
-
-The [Linux AOT workflow](docs/NATIVE_AOT_BUILD_PLAN.md) records and tests
-Alpine's musl, BusyBox, Python and zlib, then links the translations into an
-executable with runtime code generation disabled. Python and zlib are not part
-of the bundled iOS AOT set.
-
-Use the [artifact guide](docs/NATIVE_AOT_ARTIFACT_KIT.md) to retain the guest
-files and recordings needed for repeatable builds. Ordinary Meson builds
-continue to use the interpreter.
-
-## Releases
-
-[2.5.2](docs/reports/releases/IOS_LINUXKIT_2.5.2.md) adds Alpine's Go toolchain
-to accelerated builds and improves first-time compilation. xterm remains the
-default terminal, with Ghostty available as an alternative. See the release
-notes for changes and known limitations.
-
-Earlier source releases and dated audits are indexed under
-[reports](docs/reports/README.md). Their measurements apply to the revisions,
-hosts and guests named in each report.
-
-## Documentation
-
-| Document | Use it for |
-|---|---|
-| [Documentation index](docs/README.md) | Choosing the maintained guide or dated report. |
-| [Architecture](docs/ARCHITECTURE.md) | Interpreter, memory, kernel and host boundaries. |
-| [Linux development](docs/LINUX_DEVELOPMENT.md) | Building, fakefs creation, command-line use and diagnostics. |
-| [iOS application](docs/IOS_APPLICATION.md) | Xcode schemes, rootfs packaging and host integration. |
-| [Linux AOT](docs/NATIVE_AOT_BUILD_PLAN.md) | Recording, linking, running, testing and measuring local AOT. |
-| [Native offload](docs/NATIVE_OFFLOAD.md) | Legacy/cooperative contracts, guest VFS, bounded streams and output policy. |
-| [Route-netlink and Tailscale](docs/NETLINK_TAILSCALE.md) | Opt-in host interface discovery and isolated userspace networking tests. |
-| [AOT artifacts](docs/NATIVE_AOT_ARTIFACT_KIT.md) | Freezing, restoring, validating and publishing reusable inputs/builds. |
-| [iOS AOT](docs/NATIVE_AOT_IOS.md) | Target compatibility checks, Mach-O conversion and Apple integration. |
-| [Validation](docs/VALIDATION.md) | Test checks, reports and failure rules. |
-| [Limitations](docs/LIMITATIONS.md) | Security, compatibility and unsupported workloads. |
-| [Contributing](docs/CONTRIBUTING.md) | Change and documentation requirements. |
-| [Versioning and releases](docs/RELEASES.md) | App versions, build numbers, Git tags and release checks. |
-
-Dated benchmark, workload, release and audit records live under [`docs/reports/`](docs/reports/). They preserve their original observations and are not current operating instructions.
-
-## Licence and provenance
-
-`ios-linuxkit` contains work derived from [ish-app/ish](https://github.com/ish-app/ish) and its dependencies. See [LICENSE.md](LICENSE.md), [LICENSE.IOS](LICENSE.IOS), the [preserved May 2026 README](docs/legacy/ORIGINAL_ISH_README_2026-05.md), and [`docs/legacy/`](docs/legacy/).
+The fork preserves Git history and the inherited [GPL and contributor terms](LICENSE.md) and [iOS additional terms](LICENSE.IOS). Third-party sources, submodules and vendored terminal fonts/libraries carry their own notices. Source release and dependency-license review are required before any binary distribution. See [upstream provenance](docs/legacy/) and [fork provenance](docs/UPSTREAM.md).

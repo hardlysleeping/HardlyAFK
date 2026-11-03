@@ -7,7 +7,7 @@
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleDisplayName</key>
-	<string>LinuxKit</string>
+	<string>HardlyAFK</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -25,14 +25,14 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>This is required for connecting to localhost and using the ping command.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Programs running in ios-linuxkit will be allowed to track your location in the background.</string>
+	<string>Linux programs running in HardlyAFK may access your location in the background when you grant permission.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
-	<string>Programs running in ios-linuxkit will be allowed to track your location in the background.</string>
+	<string>Linux programs running in HardlyAFK may access your location in the background when you grant permission.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Programs running in ios-linuxkit will be allowed to see your location.</string>
+	<string>Linux programs running in HardlyAFK may access your location when you grant permission.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
-		<string>app.ish.scene</string>
+		<string>ing.hardlysleep.HardlyAFK.scene</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

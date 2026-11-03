@@ -371,7 +371,7 @@ void NetworkReachabilityCallback(SCNetworkReachabilityRef target, SCNetworkReach
         });
         dispatch_resume(self.memoryDiagnostics);
     }
-    NSString *ishVersion = [NSString stringWithFormat:@"ios-linuxkit %@ (%@)",
+    NSString *ishVersion = [NSString stringWithFormat:@"HardlyAFK %@ (%@)",
                          [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"],
                          [NSBundle.mainBundle objectForInfoDictionaryKey:(NSString *) kCFBundleVersionKey]];
     extern const char *proc_ish_version;
