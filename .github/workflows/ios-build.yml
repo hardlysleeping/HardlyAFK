@@ -78,3 +78,26 @@ jobs:
           assert (app/'root.tar.gz').is_file(), 'bundled Alpine rootfs missing'
           print('Verified', app, info['CFBundleIdentifier'], info['CFBundleShortVersionString'])
           PY
+      - name: Package unsigned app for inspection (not installable as-is)
+        run: |
+          APP="$RUNNER_TEMP/HardlyAFK-DD/Build/Products/Debug-ApplePleaseFixFB19282108-iphoneos/HardlyAFK.app"
+          mkdir -p "$RUNNER_TEMP/hardlyafk-payload/Payload"
+          ditto "$APP" "$RUNNER_TEMP/hardlyafk-payload/Payload/HardlyAFK.app"
+          cd "$RUNNER_TEMP/hardlyafk-payload"
+          ditto -c -k --sequesterRsrc --keepParent Payload "$RUNNER_TEMP/HardlyAFK-unsigned.ipa"
+          python3 - <<'PY'
+          import os, plistlib, zipfile
+          archive = os.path.join(os.environ['RUNNER_TEMP'], 'HardlyAFK-unsigned.ipa')
+          with zipfile.ZipFile(archive) as ipa:
+              info = plistlib.loads(ipa.read('Payload/HardlyAFK.app/Info.plist'))
+              assert info['CFBundleIdentifier'] == 'ing.hardlysleep.HardlyAFK'
+              assert 'Payload/HardlyAFK.app/root.tar.gz' in ipa.namelist()
+              executable = ipa.read('Payload/HardlyAFK.app/' + info['CFBundleExecutable'])
+              assert executable[:4] in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe'), 'not a Mach-O binary'
+              print('Verified unsigned IPA:', len(ipa.namelist()), 'entries,', len(executable), 'executable bytes')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HardlyAFK-unsigned-ipa
+          path: ${{ runner.temp }}/HardlyAFK-unsigned.ipa
+          if-no-files-found: error
