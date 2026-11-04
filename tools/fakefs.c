@@ -20,12 +20,13 @@
 #endif
 
 // I have a weird way of error handling
+#define ERROR_RETURN return false
 #define FILL_ERR(_type, _code, _message) do { \
     err_out->line = __LINE__; \
     err_out->type = _type; \
     err_out->code = _code; \
     err_out->message = strdup(_message); \
-    return false; \
+    ERROR_RETURN; \
 } while (0)
 #define ARCHIVE_ERR(archive) FILL_ERR(ERR_ARCHIVE, archive_errno(archive), archive_error_string(archive))
 #define POSIX_ERR() FILL_ERR(ERR_POSIX, errno, strerror(errno))
@@ -44,6 +45,7 @@ static bool progress_update(struct progress *p, double progress, const char *mes
 
 // I hate this code
 static bool path_normalize(const char *path, char *out) {
+    if (!path || strlen(path) >= MAX_PATH - 2) return false;
 #define ends_path(c) (c == '\0' || c == '/')
     // normalized format:
     // ( '/' path-component ) *
@@ -77,7 +79,14 @@ static const char *schema = Q(
     pragma user_version=3;
 );
 
+#undef ERROR_RETURN
+#define ERROR_RETURN goto import_failed
 bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_error *err_out, struct progress p) {
+    int root_fd = -1, fd = -1;
+    sqlite3 *db = NULL;
+    struct archive *archive = NULL;
+    sqlite3_stmt *insert_stat = NULL, *insert_path = NULL, *insert_hardlink = NULL;
+    char *entry_path_copy = NULL;
     int err = mkdir(fs, 0777);
     if (err < 0)
         POSIX_ERR();
@@ -86,13 +95,12 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
     char path_tmp[PATH_MAX];
     snprintf(path_tmp, sizeof(path_tmp), "%s/data", fs);
     err = mkdir(path_tmp, 0777);
-    int root_fd = open(path_tmp, O_RDONLY);
+    root_fd = open(path_tmp, O_RDONLY);
     if (root_fd < 0)
         POSIX_ERR();
 
     // open the database
     snprintf(path_tmp, sizeof(path_tmp), "%s/meta.db", fs);
-    sqlite3 *db;
     err = sqlite3_open_v2(path_tmp, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL);
     CHECK_ERR();
     EXEC("pragma journal_mode=wal")
@@ -100,7 +108,7 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
     EXEC(schema);
 
     // open the archive
-    struct archive *archive = archive_read_new();
+    archive = archive_read_new();
     if (archive == NULL)
         ARCHIVE_ERR(archive);
     archive_read_support_filter_gzip(archive);
@@ -113,9 +121,9 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
         POSIX_ERR();
     size_t archive_bytes = real_stat.st_size;
 
-    sqlite3_stmt *insert_stat = PREPARE("insert into stats (stat) values (?)");
-    sqlite3_stmt *insert_path = PREPARE("insert or replace into paths values (?, ?)");
-    sqlite3_stmt *insert_hardlink = PREPARE("insert or replace into paths values (?, (select inode from paths where path = ? limit 1))");
+    insert_stat = PREPARE("insert into stats (stat) values (?)");
+    insert_path = PREPARE("insert or replace into paths values (?, ?)");
+    insert_hardlink = PREPARE("insert or replace into paths values (?, (select inode from paths where path = ? limit 1))");
 
     bool archive_has_root = false;
 
@@ -149,7 +157,8 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
         }
 
         // mkdir -p
-        char *entry_path_copy = strdup(entry_path);
+        entry_path_copy = strdup(entry_path);
+        if (!entry_path_copy) POSIX_ERR();
         char *slash = entry_path_copy;
         while ((slash = strchr(*slash ? slash + 1 : slash, '/')) != NULL) {
             *slash = '\0';
@@ -161,8 +170,9 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
             }
         }
         free(entry_path_copy);
+        entry_path_copy = NULL;
 
-        int fd = -1;
+        fd = -1;
         // first, create node
         switch (archive_entry_filetype(entry)) {
             case AE_IFREG:
@@ -211,6 +221,7 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
         }
         if (fd != -1)
             close(fd);
+        fd = -1;
 
         struct timespec times[2] = {
             // for utimes, atime is first, mtime is second
@@ -251,17 +262,37 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
         STEP_RESET(insert_path);
     }
 
-    FINALIZE(insert_stat);
-    FINALIZE(insert_path);
-    FINALIZE(insert_hardlink);
+    err = sqlite3_finalize(insert_stat);
+    insert_stat = NULL;
+    CHECK_ERR();
+    err = sqlite3_finalize(insert_path);
+    insert_path = NULL;
+    CHECK_ERR();
+    err = sqlite3_finalize(insert_hardlink);
+    insert_hardlink = NULL;
+    CHECK_ERR();
     EXEC("commit");
     sqlite3_close(db);
     close(root_fd);
-
-    if (archive_read_free(archive) != ARCHIVE_OK)
-        ARCHIVE_ERR(archive);
+    archive_read_free(archive);
     return true;
+
+import_failed:
+    free(entry_path_copy);
+    if (fd >= 0) close(fd);
+    sqlite3_finalize(insert_stat);
+    sqlite3_finalize(insert_path);
+    sqlite3_finalize(insert_hardlink);
+    if (db) {
+        sqlite3_exec(db, "ROLLBACK", NULL, NULL, NULL);
+        sqlite3_close(db);
+    }
+    if (root_fd >= 0) close(root_fd);
+    if (archive) archive_read_free(archive);
+    return false;
 }
+#undef ERROR_RETURN
+#define ERROR_RETURN return false
 
 bool fakefs_export(const char *fs, const char *archive_path, struct fakefsify_error *err_out, struct progress p) {
     // open the archive
