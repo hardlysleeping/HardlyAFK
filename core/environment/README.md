@@ -71,3 +71,42 @@ The regression covers creation order, duplicate and invalid names, UUID uniquene
 case-insensitive rename collisions, active-environment deletion protection, desktop
 add/remove/dedupe, reopening a catalog, cascade cleanup, and rejection of traversal and
 absolute relative paths. CI runs the same suite under ASan/UBSan.
+
+## G10 bounded host increment: offline store bundles
+
+`tools/afk-store-backup.py` exports/imports an **entire offline catalog/store**,
+not an individual-environment merge and not an iOS share-sheet archive:
+
+```sh
+python3 tools/afk-store-backup.py export /absolute/store /absolute/new-bundle --quiescent
+python3 tools/afk-store-backup.py import /absolute/new-bundle /absolute/new-store --quiescent
+```
+
+Both destinations must be absent. Stop the runtime **and every file-provider/writer**
+before either operation; `--quiescent` is an operator assertion, not a runtime lock.
+Use a private source/destination parent with serialized access. These are trusted local
+filesystem operations, not a hardened hostile-archive importer or concurrent-writer API.
+Same-parent staging avoids publishing partial copies on ordinary failures; there is no
+fsync/crash-durability guarantee or atomic no-replace guarantee against racing publishers.
+
+The bundle preserves the catalog (including desktop/active metadata), complete environment
+trees, host modes, hardlinks and symlink targets without following symlinks. SQLite's backup
+API includes committed WAL content in standalone database snapshots; raw WAL/SHM sidecars
+are not copied. SQLite reads can update ephemeral SHM/locking state on the source.
+SHA-256 inventory checking detects accidental corruption, not malicious manifest edits.
+Unsupported host special nodes and orphan environment directories are refused. Guest
+ownership, permissions and device types remain in the unmodified fakefs stat blobs.
+Host ownership/ACLs/resource forks and cross-platform extended metadata are not promised.
+
+This deliberately requires `rootfs/meta.db` plus `rootfs/data/` (fakefs schema v3).
+A plain distribution directory produced by today's generic installer is refused: rootfs-only
+copying is not a fakefs backup. Upstream `tools/fakefs.c` stores guest symlinks as regular
+host files with symlink type/permissions in SQLite; both representations must travel together.
+Inode identities change on restore; upstream fakefs's db-inode rebuild path must still be
+exercised by the real runtime. The host fixture uses the upstream schema/stat encoding and
+checks exact paths/stat blobs, contents, modes, symlinks, hardlinks, committed WAL, corruption
+refusal and nonreplacement. It does **not** mount/boot a restored fakefs.
+
+CI runs `tests/host/afk_store_backup_test.py` in the environment-store job. No Apple app/API
+integration, single-environment import, compression, IPA or physical-device proof is provided.
+G10 remains device-unproven, including on the target iPhone 17 Pro Max / iOS 26.

@@ -17,6 +17,8 @@ on:
       - 'tests/host/fetch-desktop-fixtures.sh'
       - 'tests/host/extract_deb_desktop.py'
       - 'tools/afk-envctl.c'
+      - 'tools/afk-store-backup.py'
+      - 'tests/host/afk_store_backup_test.py'
       - '.github/workflows/core-contracts.yml'
   workflow_dispatch:
 
@@ -67,6 +69,8 @@ jobs:
             core/environment/afk_env_store.c tools/afk-envctl.c -lsqlite3 \
             -o /tmp/hardlyafk-afk-envctl
           sh tests/host/afk_envctl_test.sh /tmp/hardlyafk-afk-envctl
+      - name: Round-trip an offline fakefs store (host only)
+        run: TMPDIR="$RUNNER_TEMP" python3 tests/host/afk_store_backup_test.py /tmp/hardlyafk-afk-envctl
 
   environment-api:
     runs-on: ubuntu-24.04
