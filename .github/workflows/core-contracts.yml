@@ -7,6 +7,11 @@ on:
       - 'core/**'
       - 'tests/host/afk_shared_file_test.c'
       - 'tests/host/afk_session_state_test.c'
+      - 'tests/host/afk_ios_boot_test.py'
+      - 'app/Roots*'
+      - 'app/AppDelegate.m'
+      - 'app/App.xcconfig'
+      - 'iSH.xcodeproj/project.pbxproj'
       - 'tests/host/afk_env_catalog_test.c'
       - 'tests/host/afk_env_store_test.c'
       - 'tests/host/afk_envctl_test.sh'
@@ -65,6 +70,10 @@ jobs:
             -fno-omit-frame-pointer -I. core/environment/afk_env_catalog.c \
             tests/host/afk_env_catalog_test.c -lsqlite3 -o /tmp/hardlyafk-env-catalog-test
           ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-env-catalog-test
+      - name: Validate iOS catalog boot roots and relaunch-only wiring (host only)
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: python3 tests/host/afk_ios_boot_test.py
 
   environment-store:
     runs-on: ubuntu-24.04

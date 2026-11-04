@@ -145,3 +145,41 @@ explicitly supplies an approved directory fd per environment; this is separate
 from fakefs/store backup and does not automatically expose any environment tree.
 Only regular-file reads/writes and exclusive creation are provided. There is no
 runtime mount, UI, or device claim; trusted-root/hardlink assumptions apply.
+
+## Bounded iOS catalog boot integration (Linux mode only)
+
+The Filesystems screen links to **Managed Environments**, which lists the real core
+catalog at `ContainerURL()/managed-environments/catalog.db`. This is not a rename
+of upstream `roots/`. The legacy root list/import/export remains separate; no legacy
+files or fakefs databases are moved, converted or deleted by this integration.
+An empty catalog is shown honestly; there is no in-app managed installer yet.
+Provision a complete store offline with all runtimes/file providers stopped; do not
+copy a running fakefs or substitute a plain extracted distro rootfs.
+
+Selection is a persisted **next process launch** preference (empty = legacy default).
+It validates first but does not change the catalog active marker, stop a task, mount,
+or change the running guest. Fully close and relaunch the app; this is not a safe-stop
+implementation. `Roots.bootRootURL:` captures success **or failure** once per process.
+On managed boot it revalidates, sets the core active marker conservatively before
+mounting, then AppDelegate passes `<environment>/rootfs/data` to `mount_root` so
+upstream fakefs reads its sibling `meta.db`. A failed selected boot is refused, never
+silently redirected to another environment. The active marker can survive a failed
+mount or a return to legacy mode; it is a conservative deletion guard, not live status.
+
+`afk_ios_boot_root` accepts only canonical `environments/<UUID>/rootfs`, aarch64,
+root user and terminal session. It rejects symlink components below the trusted
+app-private store, missing data/meta.db and unsupported fakefs schema. It opens the
+fakefs database read-only and does not transform guest stat blobs. This is a layout/
+schema preflight, not an integrity check, ELF validation or proof that init exists.
+The existing global boot/launch command preferences still apply; configure commands
+appropriate to the provisioned distro. The backend/API lifecycle adapter, per-environment
+commands/users, file-provider integration, install/delete/export UI and safe runtime
+switching remain out of scope. ARM64 emulator target only; other targets refuse managed
+selection. Native/a-Shell and desktop work are deferred.
+
+Both Xcode source phases compiling Roots include catalog/resolver C files, and the
+app links system SQLite explicitly. Host executable resolver regressions and source
+wiring assertions run with `python3 tests/host/afk_ios_boot_test.py` (use Arch system
+`/usr/bin/python3` locally). These tests use disposable synthetic fakefs, not user data.
+Apple SDK compilation, fakefs mounting/boot, network, persistence and relaunch behavior
+on a physical iPhone/iPad are **not verified** by these host tests; G1/G3 stay open.

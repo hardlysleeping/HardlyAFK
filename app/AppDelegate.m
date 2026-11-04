@@ -138,7 +138,12 @@ static int bootError;
         NSLog(@"AOT layout evidence write failed: %@", layoutError);
     NSLog(@"AOT target layout: %s", layout);
 #endif
-    NSURL *root = [Roots.instance rootUrl:Roots.instance.defaultRoot];
+    NSError *rootError = nil;
+    NSURL *root = [Roots.instance bootRootURL:&rootError];
+    if (!root) {
+        NSLog(@"Managed environment boot refused: %@", rootError);
+        return _EINVAL;
+    }
 
     int err = mount_root(&fakefs, [root URLByAppendingPathComponent:@"data"].fileSystemRepresentation);
     if (err < 0)

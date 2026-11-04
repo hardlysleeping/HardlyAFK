@@ -12,6 +12,11 @@
 #import "UIViewController+Extras.h"
 #import "NSObject+SaneKVO.h"
 
+@interface ManagedEnvironmentsViewController : UITableViewController
+@property (nonatomic, copy) NSArray<NSDictionary<NSString *, NSString *> *> *environments;
+@property (nonatomic, copy) NSString *loadError;
+@end
+
 @interface RootsTableViewController ()
 @end
 
@@ -30,6 +35,11 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    UIButton *managed = [UIButton buttonWithType:UIButtonTypeSystem];
+    managed.frame = CGRectMake(0, 0, self.tableView.bounds.size.width, 52);
+    [managed setTitle:@"Managed Environments…" forState:UIControlStateNormal];
+    [managed addTarget:self action:@selector(showManagedEnvironments) forControlEvents:UIControlEventTouchUpInside];
+    self.tableView.tableHeaderView = managed;
     [Roots.instance observe:@[@"roots", @"defaultRoot"]
                     options:0 owner:self usingBlock:^(typeof(self) self) {
         [self.tableView reloadData];
@@ -59,6 +69,11 @@
 - (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender {
     RootDetailViewController *vc = segue.destinationViewController;
     vc.rootName = Roots.instance.roots[self.tableView.indexPathForSelectedRow.row];
+}
+
+- (void)showManagedEnvironments {
+    [self.navigationController pushViewController:[[ManagedEnvironmentsViewController alloc]
+        initWithStyle:UITableViewStyleGrouped] animated:YES];
 }
 
 - (IBAction)importFilesystem:(id)sender {
@@ -237,4 +252,52 @@
     self.exportURL = nil; // get it deleted
 }
 
+@end
+
+@implementation ManagedEnvironmentsViewController
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    self.title = @"Managed Environments";
+    NSError *error = nil;
+    self.environments = [Roots.instance managedEnvironments:&error];
+    self.loadError = error.localizedDescription;
+    [self.tableView reloadData];
+}
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return self.environments.count + 1;
+}
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    return self.loadError ?: @"Checkmark = next launch, not the running guest. Selection never stops or switches Linux. Fully close the app before relaunching. Only existing ARM64 root/terminal fakefs environments are supported. This screen does not install, migrate, delete or export filesystems. An empty catalog must be provisioned offline; legacy filesystems remain separate and unchanged.";
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    NSString *identifier = @"";
+    if (indexPath.row == 0) {
+        cell.textLabel.text = @"Legacy default filesystem";
+        cell.detailTextLabel.text = Roots.instance.defaultRoot;
+    } else {
+        NSDictionary *row = self.environments[indexPath.row - 1];
+        identifier = row[@"id"];
+        cell.textLabel.text = row[@"name"];
+        cell.detailTextLabel.text = row[@"detail"];
+    }
+    cell.accessoryType = [identifier isEqualToString:Roots.instance.managedSelection] ?
+        UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
+    return cell;
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    NSString *identifier = indexPath.row ? self.environments[indexPath.row - 1][@"id"] : @"";
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Use on next launch?"
+        message:@"The current guest keeps running unchanged. Fully close HardlyAFK and reopen it to boot this selection. No automatic shutdown or safe-stop is claimed."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Select for next launch" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSError *error = nil;
+        if (![Roots.instance selectManagedEnvironment:identifier error:&error])
+            [self presentError:error title:@"Selection refused"];
+        [self.tableView reloadData];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
 @end
