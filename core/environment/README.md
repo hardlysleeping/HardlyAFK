@@ -74,8 +74,8 @@ absolute relative paths. CI runs the same suite under ASan/UBSan.
 
 ## G10 bounded host increment: offline store bundles
 
-`tools/afk-store-backup.py` exports/imports an **entire offline catalog/store**,
-not an individual-environment merge and not an iOS share-sheet archive:
+`tools/afk-store-backup.py` supports entire offline stores and individual-environment
+bundles (not an iOS share-sheet archive). Whole-store commands:
 
 ```sh
 python3 tools/afk-store-backup.py export /absolute/store /absolute/new-bundle --quiescent
@@ -107,6 +107,32 @@ exercised by the real runtime. The host fixture uses the upstream schema/stat en
 checks exact paths/stat blobs, contents, modes, symlinks, hardlinks, committed WAL, corruption
 refusal and nonreplacement. It does **not** mount/boot a restored fakefs.
 
-CI runs `tests/host/afk_store_backup_test.py` in the environment-store job. No Apple app/API
-integration, single-environment import, compression, IPA or physical-device proof is provided.
+For a single environment, export requires its canonical UUID and an absent bundle path;
+import requires an **existing** valid offline store and an explicit unique new name:
+
+```sh
+python3 tools/afk-store-backup.py export-env /absolute/store /absolute/env-bundle --id UUID --quiescent
+python3 tools/afk-store-backup.py import-env /absolute/env-bundle /absolute/store --name 'Debian clone' --quiescent
+```
+
+Import prints a newly generated UUID, retains distro/version/architecture, creation timestamp,
+default user/session and desktop metadata, and never restores the source active selection.
+The complete selected environment tree travels with its fakefs database/data and host modes.
+Export refuses the active source even if stopped: deselect it first. Both operations still
+require all runtimes and writers stopped; running state is not persisted in the catalog and
+cannot be detected here. All environments in source/destination must pass store validation.
+
+Merge stages only the incoming tree, inserts rows under `BEGIN IMMEDIATE`, publishes the tree,
+then commits; ordinary exceptions roll back metadata and remove a published new tree. Existing
+trees/rows are not replaced. A process/power failure between rename and commit can leave an
+orphan new UUID directory (never an existing environment overwrite); remove that orphan only
+after checking the catalog. This is not a crash-atomic transaction across SQLite/filesystem.
+Private directories and serialized access remain mandatory; no hostile bundles or racing
+writers are supported. Inventory hashes are corruption checks, not signatures. Catalog schema
+v1 and fakefs schema v3 only; host ownership/ACLs are still not promised.
+
+CI runs `tests/host/afk_store_backup_test.py` in the environment-store job, including merge into
+two synthetic existing environments, new identity/name, duplicate/missing name, quiescence,
+active-source and corrupt-bundle refusals, publication-failure rollback and unchanged old trees.
+No Apple app/API integration, compression, IPA or physical-device proof is provided.
 G10 remains device-unproven, including on the target iPhone 17 Pro Max / iOS 26.

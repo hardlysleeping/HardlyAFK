@@ -77,6 +77,72 @@ with tempfile.TemporaryDirectory(prefix='afk-backup-test-', dir=os.environ['TMPD
         pass
     assert not (base/'corrupt-result').exists()
     assert stable_inventory(source) == before
+    # Make a second genuine catalog environment; synthetic fakefs only.
+    subprocess.run([sys.argv[1], '--root', str(source), 'create', '--name', 'Second',
+                    '--distro', 'alpine', '--version', '3'], check=True)
+    with backup.contextlib.closing(sqlite3.connect(source / 'catalog.db')) as catalog:
+        second, second_rel = catalog.execute('select id,relative_path from environments where name="Second"').fetchone()
+    backup.copy_store(fs, source / second_rel / 'fixture', True)
+    (source / second_rel / 'rootfs').rmdir()
+    os.rename(source / second_rel / 'fixture', source / second_rel / 'rootfs')
+    original_trees = {r: stable_inventory(source / r) for r in (rel, second_rel)}
+    single = base / 'single'
+    backup.environment_transfer('export-env', source, single, True, ident)
+    clone = subprocess.check_output([sys.executable, 'tools/afk-store-backup.py',
+        'import-env', str(single), str(source), '--quiescent', '--name', 'Clone'], text=True).strip()
+    assert clone not in (ident, second)
+    with backup.contextlib.closing(sqlite3.connect(source / 'catalog.db')) as catalog:
+        assert catalog.execute('select count(*) from environments').fetchone() == (3,)
+        assert catalog.execute('select name from environments where id=?', (clone,)).fetchone() == ('Clone',)
+        assert catalog.execute('select desktop_id from env_desktops where env_id=?', (clone,)).fetchall() == [('openbox',)]
+    clone_fs = source / 'environments' / clone / 'rootfs'
+    assert backup.inventory(clone_fs) == backup.inventory(single / 'store' / rel / 'rootfs')
+    assert (clone_fs/'data/hello').stat().st_ino == (clone_fs/'data/hardlink').stat().st_ino
+    merged = stable_inventory(source)
+    from unittest.mock import patch
+    with patch.object(backup.os, 'rename', side_effect=OSError('injected publication failure')):
+        try:
+            backup.environment_transfer('import-env', single, source, True, name='Failed')
+            raise AssertionError('publication unexpectedly succeeded')
+        except OSError:
+            pass
+    assert stable_inventory(source) == merged
+    # A store-level symlink must never redirect database/tree writes outside it.
+    redirected = base / 'redirected'
+    redirected.mkdir()
+    (redirected / 'environments').symlink_to(source / 'environments')
+    try:
+        backup.environment_transfer('import-env', single, redirected, True, name='Escape')
+        raise AssertionError('accepted redirected environments directory')
+    except ValueError:
+        pass
+    assert stable_inventory(source) == merged
+    for quiet, name in [(False, 'Other'), (True, None), (True, 'Clone')]:
+        try:
+            backup.environment_transfer('import-env', single, source, quiet, name=name)
+            raise AssertionError('accepted unsafe merge')
+        except (ValueError, sqlite3.IntegrityError):
+            pass
+        assert stable_inventory(source) == merged
+    with backup.contextlib.closing(sqlite3.connect(source / 'catalog.db')) as catalog:
+        catalog.execute('insert into catalog_meta values (?,?)', ('active_environment', ident))
+        catalog.commit()
+    try:
+        backup.environment_transfer('export-env', source, base/'active', True, ident)
+        raise AssertionError('accepted active source')
+    except ValueError:
+        pass
+    merged = stable_inventory(source)
+    (single / 'store' / rel / 'rootfs/data/hello').write_bytes(b'corrupt')
+    try:
+        backup.environment_transfer('import-env', single, source, True, name='Corrupt')
+        raise AssertionError('accepted corrupt merge')
+    except ValueError:
+        pass
+    assert stable_inventory(source) == merged
+    for r, entries in original_trees.items():
+        assert stable_inventory(source / r) == entries
+    print('individual environment: two existing envs, new UUID/name, desktops, fakefs WAL, permissions, hardlinks, active/quiescence/name/corrupt refusal, existing trees unchanged: PASS')
     db.close()
     (fs/'meta.db').write_bytes(b'not sqlite')
     try:
