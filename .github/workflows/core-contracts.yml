@@ -22,6 +22,10 @@ on:
       - 'tests/host/afk_desktop_entry_test.c'
       - 'tests/host/fetch-desktop-fixtures.sh'
       - 'tests/host/extract_deb_desktop.py'
+      - 'tools/afk_managed_install.*'
+      - 'tools/fakefs.c'
+      - 'tests/host/afk_managed_install_test.c'
+      - 'tests/host/run-managed-install.sh'
       - 'tools/afk-envctl.c'
       - 'tools/afk-store-backup.py'
       - 'tests/host/afk_store_backup_test.py'
@@ -97,6 +101,22 @@ jobs:
           sh tests/host/afk_envctl_test.sh /tmp/hardlyafk-afk-envctl
       - name: Round-trip an offline fakefs store (host only)
         run: TMPDIR="$RUNNER_TEMP" python3 tests/host/afk_store_backup_test.py /tmp/hardlyafk-afk-envctl
+
+  managed-bundled-provisioning:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install importer development headers
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev libarchive-dev
+      - name: Fetch fixed Alpine fixture and exercise real fakefs conversion
+        env:
+          TMPDIR: ${{ runner.temp }}
+        # Fixed trusted URL and runner-owned scratch; no event input in shell.
+        run: |
+          curl -fsSL --retry 3 -o "$TMPDIR/alpine.tar.gz" \
+            https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-minirootfs-3.24.2-aarch64.tar.gz
+          sh tests/host/run-managed-install.sh "$TMPDIR/alpine.tar.gz"
 
   environment-api:
     runs-on: ubuntu-24.04

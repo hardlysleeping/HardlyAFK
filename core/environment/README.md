@@ -152,9 +152,10 @@ The Filesystems screen links to **Managed Environments**, which lists the real c
 catalog at `ContainerURL()/managed-environments/catalog.db`. This is not a rename
 of upstream `roots/`. The legacy root list/import/export remains separate; no legacy
 files or fakefs databases are moved, converted or deleted by this integration.
-An empty catalog is shown honestly; there is no in-app managed installer yet.
-Provision a complete store offline with all runtimes/file providers stopped; do not
-copy a running fakefs or substitute a plain extracted distro rootfs.
+The **+** action now creates independent Alpine 3.24 ARM64 environments from the
+bundled pinned minirootfs (3.24.2, SHA-256 `9bf70a7f18ea44094cbb5f70c58f9af129c8214745743db0e68e5502cc2ce773`).
+No network acquisition or arbitrary document import is offered. Names use core
+validation and case-insensitive uniqueness; each success gets a new UUID.
 
 Selection is a persisted **next process launch** preference (empty = legacy default).
 It validates first but does not change the catalog active marker, stop a task, mount,
@@ -173,13 +174,55 @@ fakefs database read-only and does not transform guest stat blobs. This is a lay
 schema preflight, not an integrity check, ELF validation or proof that init exists.
 The existing global boot/launch command preferences still apply; configure commands
 appropriate to the provisioned distro. The backend/API lifecycle adapter, per-environment
-commands/users, file-provider integration, install/delete/export UI and safe runtime
+commands/users, file-provider integration, network install/delete/export UI and safe runtime
 switching remain out of scope. ARM64 emulator target only; other targets refuse managed
 selection. Native/a-Shell and desktop work are deferred.
 
-Both Xcode source phases compiling Roots include catalog/resolver C files, and the
+Both Xcode source phases compiling Roots include catalog/resolver/store/distro/hash/provisioner C files, and the
 app links system SQLite explicitly. Host executable resolver regressions and source
 wiring assertions run with `python3 tests/host/afk_ios_boot_test.py` (use Arch system
 `/usr/bin/python3` locally). These tests use disposable synthetic fakefs, not user data.
 Apple SDK compilation, fakefs mounting/boot, network, persistence and relaunch behavior
 on a physical iPhone/iPad are **not verified** by these host tests; G1/G3 stay open.
+
+### Bundled provisioning contract
+
+`tools/afk_managed_install.c` composes the core verifier/store/resolver with the
+**runtime's `fakefs_import`**, not raw tar extraction. It verifies the exact archive
+before creating any environment, then fully decodes it without extracting, rejecting
+absolute/traversal/oversized member and hardlink paths, corrupt input, unsupported
+special nodes, >100,000 entries and >512 MiB decoded data. A caller must supply an
+immutable app-private archive; this is not a concurrent mutable-file import API.
+Guest symlinks are supported because the runtime encodes them as regular host files
+plus guest stat blobs, never as host symlinks. Symlinked store components are refused.
+
+Only a newly created UUID's empty `rootfs/` is removed to make room for the importer,
+which creates `data/` and schema-v3 `meta.db`. Import/validation failures remove that
+new row/tree via the core safe delete, and cleanup failures are reported explicitly.
+Importer failures now release SQLite statements, transactions, archive and file handles.
+This is ordinary-error rollback, **not crash/power-loss atomic publication**; killing
+the process mid-install can leave an incomplete new row/tree which boot validation
+may refuse. No automatic crash recovery or installed-health indicator is claimed.
+
+The app serializes creation on a background queue, keeps a busy modal visible and
+reloads the catalog after completion. This is isolated provisioning of a **new** root,
+not `afk_api_install_environment` or a fabricated stopped runtime session. It can run
+while the current guest exists because it never reads/copies its data, changes its
+active identity, or retargets its pinned mount; resource contention is still possible.
+The lifecycle API's stop-before-install contract is unchanged. Creation does not
+select the result; explicitly choose it for next launch and fully relaunch afterward.
+Legacy roots, existing environments and next-launch selection are preserved.
+
+Linux proof (SQLite/libarchive headers required):
+
+```sh
+TMPDIR=/your/owned/scratch sh tests/host/run-managed-install.sh /path/to/pinned-alpine.tar.gz
+```
+
+The ASan/UBSan test uses the real pinned Alpine and actual runtime converter, checks
+two independent fakefs roots, ARM64 BusyBox, guest symlink contents/stat metadata,
+reopen and active identity preservation, checksum/structural/path/symlink-archive
+refusal and repeated cancellation rollback with an existing sentinel untouched.
+Source assertions cover the reachable + action and all Xcode source phases. None
+of this substitutes for testing creation, selection, relaunch, guest persistence or
+storage/background interruption on a device.

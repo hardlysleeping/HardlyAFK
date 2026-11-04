@@ -155,6 +155,15 @@ class IOSWiringTests(unittest.TestCase):
         self.assertIn("selectManagedEnvironment:identifier", ui)
         self.assertIn("Select for next launch", ui)
         self.assertIn("No automatic shutdown or safe-stop is claimed", ui)
+        self.assertIn("@selector(createEnvironment)", ui)
+        self.assertIn("createManagedAlpineNamed:name", ui)
+        self.assertIn("dispatch_get_global_queue", ui)
+        roots = (REPO / "app/Roots.m").read_text()
+        creation = roots.split("- (BOOL)createManagedAlpineNamed:")[1].split("- (BOOL)selectManagedEnvironment:")[0]
+        self.assertIn("afk_managed_install(", creation)
+        self.assertIn('@"root" withExtension:@"tar.gz"', creation)
+        for forbidden in ["afk_catalog_set_active(", "setObject:", "mount_root(", "importRootFromArchive:"]:
+            self.assertNotIn(forbidden, creation)
 
     def test_every_roots_source_phase_links_core_and_sqlite(self):
         import re
@@ -163,7 +172,7 @@ class IOSWiringTests(unittest.TestCase):
         phases = [p for p in phases if "Roots.m in Sources" in p]
         self.assertEqual(len(phases), 2)
         for phase in phases:
-            for filename in ["afk_env_catalog.c", "afk_ios_boot.c"]:
+            for filename in ["afk_env_catalog.c", "afk_ios_boot.c", "afk_env_store.c", "afk_distro_catalog.c", "afk_sha256.c", "afk_managed_install.c"]:
                 match = re.search(r"([A-F0-9]{24}) /\* " + re.escape(filename) + " in Sources", phase)
                 assert match is not None, filename
                 self.assertRegex(project, match[1] + r" /\* .*? = \{isa = PBXBuildFile;")

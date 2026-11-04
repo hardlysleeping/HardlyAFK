@@ -11,6 +11,9 @@
 #import "NSObject+SaneKVO.h"
 #include "tools/fakefs.h"
 #include "core/environment/afk_ios_boot.h"
+#include "tools/afk_managed_install.h"
+#include <sys/stat.h>
+#include <errno.h>
 
 static NSURL *ManagedStoreURL(void) {
     return [ContainerURL() URLByAppendingPathComponent:@"managed-environments" isDirectory:YES];
@@ -25,6 +28,17 @@ static struct afk_catalog *OpenManagedCatalog(NSError **error) {
     if (![NSFileManager.defaultManager createDirectoryAtURL:ManagedStoreURL()
         withIntermediateDirectories:YES attributes:nil error:&directoryError]) {
         if (error) *error = directoryError;
+        return NULL;
+    }
+    struct stat st;
+    if (lstat(ManagedStoreURL().fileSystemRepresentation, &st) || !S_ISDIR(st.st_mode)) {
+        ManagedError(error, "Managed store must be a real directory, not a symlink");
+        return NULL;
+    }
+    NSURL *database = [ManagedStoreURL() URLByAppendingPathComponent:@"catalog.db"];
+    int exists = lstat(database.fileSystemRepresentation, &st);
+    if ((!exists && !S_ISREG(st.st_mode)) || (exists && errno != ENOENT)) {
+        ManagedError(error, "Managed catalog must be a regular file, not a symlink");
         return NULL;
     }
     struct afk_catalog *catalog = NULL;
@@ -79,6 +93,28 @@ static NSString *kDefaultRoot = @"Default Root";
         return @[];
     }
     return rows;
+}
+
+- (BOOL)createManagedAlpineNamed:(NSString *)name error:(NSError **)error {
+#if defined(GUEST_ARM64) && !ISH_LINUX
+    // Only a new UUID tree is touched. Unlike the lifecycle install API, this
+    // isolated bundled provisioner never pretends the process guest is stopped.
+    // Serialize conversions without holding the main thread or remounting Linux.
+    @synchronized (self) {
+        NSURL *archive = [NSBundle.mainBundle URLForResource:@"root" withExtension:@"tar.gz"];
+        if (!archive) return ManagedError(error, "Bundled Alpine archive is missing");
+        struct afk_catalog *catalog = OpenManagedCatalog(error);
+        if (!catalog) return NO;
+        char message[512] = {0};
+        int rc = afk_managed_install(catalog, afk_distro_find("alpine", "3.24"),
+            archive.fileSystemRepresentation, name.UTF8String, (struct progress){0},
+            NULL, message, sizeof(message));
+        afk_catalog_close(catalog);
+        return rc == 0 ? YES : ManagedError(error, message);
+    }
+#else
+    return ManagedError(error, "Managed creation requires the ARM64 emulator app target");
+#endif
 }
 
 - (BOOL)selectManagedEnvironment:(NSString *)identifier error:(NSError **)error {
