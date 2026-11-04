@@ -13,6 +13,9 @@ on:
       - 'tests/host/afk_distro_test.c'
       - 'tests/host/afk_install_test.c'
       - 'tests/host/afk_desktop_test.c'
+      - 'tests/host/afk_desktop_entry_test.c'
+      - 'tests/host/fetch-desktop-fixtures.sh'
+      - 'tests/host/extract_deb_desktop.py'
       - 'tools/afk-envctl.c'
       - '.github/workflows/core-contracts.yml'
   workflow_dispatch:
@@ -157,3 +160,17 @@ jobs:
             -fno-omit-frame-pointer -I. core/desktop/afk_desktop_catalog.c \
             tests/host/afk_desktop_test.c -o /tmp/hardlyafk-desktop-test
           ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-desktop-test "$RUNNER_TEMP/Packages"
+
+  application-launcher:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch real .desktop files from Debian packages
+        run: sh tests/host/fetch-desktop-fixtures.sh "$RUNNER_TEMP/fixtures"
+      - name: Parse them with the launcher reader
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+            -fno-omit-frame-pointer -I. core/applications/afk_desktop_entry.c \
+            tests/host/afk_desktop_entry_test.c -o /tmp/hardlyafk-apps-test
+          ASAN_OPTIONS=detect_leaks=1 /tmp/hardlyafk-apps-test "$RUNNER_TEMP/fixtures/entries"
