@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'core/**'
+      - 'tests/host/afk_shared_file_test.c'
       - 'tests/host/afk_session_state_test.c'
       - 'tests/host/afk_env_catalog_test.c'
       - 'tests/host/afk_env_store_test.c'
@@ -23,6 +24,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  shared-file-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise descriptor-relative shared files with sanitizers
+        # Only fixed source paths and runner-owned scratch; no event input in shell.
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -pedantic -g \
+            -fsanitize=address,undefined -fno-omit-frame-pointer -I. \
+            core/shared/afk_shared_file.c tests/host/afk_shared_file_test.c \
+            -o "$TMPDIR/afk-shared-test"
+          ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 "$TMPDIR/afk-shared-test"
+
   session-state:
     runs-on: ubuntu-24.04
     timeout-minutes: 5

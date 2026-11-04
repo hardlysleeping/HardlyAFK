@@ -136,3 +136,12 @@ two synthetic existing environments, new identity/name, duplicate/missing name, 
 active-source and corrupt-bundle refusals, publication-failure rollback and unchanged old trees.
 No Apple app/API integration, compression, IPA or physical-device proof is provided.
 G10 remains device-unproven, including on the target iPhone 17 Pro Max / iOS 26.
+
+## G10 bounded host increment: shared files
+
+[`../shared/README.md`](../shared/README.md) documents the descriptor-relative
+shared-file boundary for the fixed future guest name `/mnt/shared`. The host
+explicitly supplies an approved directory fd per environment; this is separate
+from fakefs/store backup and does not automatically expose any environment tree.
+Only regular-file reads/writes and exclusive creation are provided. There is no
+runtime mount, UI, or device claim; trusted-root/hardlink assumptions apply.
