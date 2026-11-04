@@ -21,6 +21,11 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
+		AF0000000000000000000011 /* afk_env_catalog.c in Sources */ = {isa = PBXBuildFile; fileRef = AF0000000000000000000001 /* afk_env_catalog.c */; };
+		AF0000000000000000000021 /* afk_env_catalog.c in Sources */ = {isa = PBXBuildFile; fileRef = AF0000000000000000000001 /* afk_env_catalog.c */; };
+		AF0000000000000000000012 /* afk_ios_boot.c in Sources */ = {isa = PBXBuildFile; fileRef = AF0000000000000000000002 /* afk_ios_boot.c */; };
+		AF0000000000000000000022 /* afk_ios_boot.c in Sources */ = {isa = PBXBuildFile; fileRef = AF0000000000000000000002 /* afk_ios_boot.c */; };
+
 		AABBCCDD1122334455667701 /* netlink.c in Sources */ = {isa = PBXBuildFile; fileRef = AABBCCDD1122334455667702 /* netlink.c */; };
 		0FC2383C2991FBA6004C09EC /* mmx.c in Sources */ = {isa = PBXBuildFile; fileRef = 0FC2383B2991FB82004C09EC /* mmx.c */; };
 		491B31E62883BF22008EEFB0 /* ThemeViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 491B31E52883BF22008EEFB0 /* ThemeViewController.m */; };
@@ -534,6 +539,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AF0000000000000000000001 /* afk_env_catalog.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = core/environment/afk_env_catalog.c; sourceTree = SOURCE_ROOT; };
+		AF0000000000000000000002 /* afk_ios_boot.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = core/environment/afk_ios_boot.c; sourceTree = SOURCE_ROOT; };
+
 		AABBCCDD1122334455667702 /* netlink.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = netlink.c; sourceTree = "<group>"; };
 		0FC2383B2991FB82004C09EC /* mmx.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = mmx.c; sourceTree = "<group>"; };
 		408A2639236440F8008A4E81 /* iOSFS.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = iOSFS.m; sourceTree = "<group>"; };
@@ -2523,6 +2531,8 @@
 				AA00010CAF96D90D00FFB7A4 /* DelayedUITask.m in Sources */,
 				AA00010DAF96D90D00FFB7A4 /* hook.c in Sources */,
 				AA00010EAF96D90D00FFB7A4 /* Roots.m in Sources */,
+				AF0000000000000000000011 /* afk_env_catalog.c in Sources */,
+				AF0000000000000000000012 /* afk_ios_boot.c in Sources */,
 				AA00010FAF96D90D00FFB7A4 /* Terminal.m in Sources */,
 				AA000110AF96D90D00FFB7A4 /* FontPickerViewController.m in Sources */,
 				AA000111AF96D90D00FFB7A4 /* UpgradeRootViewController.m in Sources */,
@@ -2628,6 +2638,8 @@
 				BB28C79926896B1F00BDC834 /* DelayedUITask.m in Sources */,
 				497A08C029633FFA00B323CF /* hook.c in Sources */,
 				BB28C7BF2689799800BDC834 /* Roots.m in Sources */,
+				AF0000000000000000000021 /* afk_env_catalog.c in Sources */,
+				AF0000000000000000000022 /* afk_ios_boot.c in Sources */,
 				BB28C79A26896B1F00BDC834 /* Terminal.m in Sources */,
 				BB28C79B26896B1F00BDC834 /* FontPickerViewController.m in Sources */,
 				BBC3863E276817A900CC8C2E /* UpgradeRootViewController.m in Sources */,
