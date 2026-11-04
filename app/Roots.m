@@ -87,11 +87,22 @@ static NSString *kDefaultRoot = @"Default Root";
     if (!catalog) return @[];
     NSMutableArray *rows = [NSMutableArray array];
     int count = afk_catalog_list(catalog, CollectManagedEnvironment, (__bridge void *)rows);
-    afk_catalog_close(catalog);
     if (count < 0) {
+        afk_catalog_close(catalog);
         ManagedError(error, "Could not list managed environments");
         return @[];
     }
+    // A killed conversion can leave a catalog row and a partial tree. Do not
+    // present that row as an ordinary usable environment or silently repair it.
+    for (NSUInteger i = 0; i < rows.count; i++) {
+        NSMutableDictionary *row = [rows[i] mutableCopy];
+        char path[AFK_ENV_PATH_MAX], message[512];
+        if (afk_ios_boot_root(catalog, [row[@"id"] UTF8String], path, message, sizeof message) != 0)
+            row[@"detail"] = [@"Incomplete or unavailable (creation may have been interrupted) · "
+                stringByAppendingString:row[@"detail"]];
+        rows[i] = row;
+    }
+    afk_catalog_close(catalog);
     return rows;
 }
 

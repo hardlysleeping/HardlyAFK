@@ -165,6 +165,23 @@ class IOSWiringTests(unittest.TestCase):
         for forbidden in ["afk_catalog_set_active(", "setObject:", "mount_root(", "importRootFromArchive:"]:
             self.assertNotIn(forbidden, creation)
 
+    def test_incomplete_rows_and_async_result_error_publication(self):
+        roots = (REPO / "app/Roots.m").read_text()
+        listing = roots.split("- (NSArray<NSDictionary<NSString *, NSString *> *> *)managedEnvironments:")[1].split("- (BOOL)createManagedAlpineNamed:")[0]
+        self.assertIn('afk_ios_boot_root(catalog, [row[@"id"] UTF8String]', listing)
+        self.assertIn("Incomplete or unavailable (creation may have been interrupted)", listing)
+        self.assertNotIn("afk_store_delete", listing)
+        ui = (REPO / "app/RootsTableViewController.m").read_text()
+        reload = ui.split("- (void)reloadEnvironments {")[1].split("- (void)createEnvironment {")[0]
+        self.assertLess(reload.index("dispatch_get_global_queue"), reload.index("managedEnvironments:&error"))
+        self.assertLess(reload.index("dispatch_get_main_queue"), reload.index("self.environments = rows"))
+        self.assertIn("generation != self.reloadGeneration", reload)
+        self.assertIn("self.loadError = error.localizedDescription", reload)
+        creation = ui.split("- (void)createEnvironment {")[1].split("- (NSInteger)tableView:")[0]
+        self.assertLess(creation.index("dispatch_get_global_queue"), creation.index("createManagedAlpineNamed:name"))
+        self.assertLess(creation.index("dispatch_get_main_queue"), creation.index("self.creating = NO"))
+        self.assertIn('if (!success) [self presentError:error title:@"Creation failed"]', creation)
+
     def test_every_roots_source_phase_links_core_and_sqlite(self):
         import re
         project = (REPO / "iSH.xcodeproj/project.pbxproj").read_text()

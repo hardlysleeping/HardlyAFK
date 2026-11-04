@@ -16,6 +16,7 @@
 @property (nonatomic, copy) NSArray<NSDictionary<NSString *, NSString *> *> *environments;
 @property (nonatomic, copy) NSString *loadError;
 @property (nonatomic) BOOL creating;
+@property (nonatomic) NSUInteger reloadGeneration;
 - (void)reloadEnvironments;
 - (void)createEnvironment;
 @end
@@ -267,10 +268,19 @@
     [self reloadEnvironments];
 }
 - (void)reloadEnvironments {
-    NSError *error = nil;
-    self.environments = [Roots.instance managedEnvironments:&error];
-    self.loadError = error.localizedDescription;
-    [self.tableView reloadData];
+    NSUInteger generation = ++self.reloadGeneration;
+    // Catalog busy waits and fakefs validation must not block UIKit. Only the
+    // newest request may publish its rows/error after an install or reappearance.
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSError *error = nil;
+        NSArray *rows = [Roots.instance managedEnvironments:&error];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (generation != self.reloadGeneration) return;
+            self.environments = rows;
+            self.loadError = error.localizedDescription;
+            [self.tableView reloadData];
+        });
+    });
 }
 - (void)createEnvironment {
     if (self.creating) return;

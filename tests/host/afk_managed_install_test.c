@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include "core/environment/afk_env_store.h"
 #include <unistd.h>
 #include <sqlite3.h>
 #include "tools/afk_managed_install.h"
@@ -17,7 +19,16 @@ static char err[512];
 static void visit(const struct afk_env_record *record, void *ctx) { (void)record; (void)ctx; }
 static int rows(struct afk_catalog *c) { return afk_catalog_list(c, visit, NULL); }
 static void cancel(void *ctx, double value, const char *text, bool *out) {
-    (void)ctx; (void)value; (void)text; *out = true;
+    (void)value; (void)text;
+    int *remaining = ctx;
+    *out = !remaining || --*remaining == 0;
+}
+static void interrupt_import(void *ctx, double value, const char *text, bool *out) {
+    (void)value; (void)text; (void)out;
+    if (--*(int *)ctx == 0) _exit(77); // No cleanup: abrupt process termination.
+}
+static void find_interrupted(const struct afk_env_record *record, void *ctx) {
+    if (!strcmp(record->name, "Interrupted")) *(struct afk_env_record *)ctx = *record;
 }
 static int children(const char *root) {
     DIR *d = opendir(root); assert(d);
@@ -38,6 +49,23 @@ static void fixture(const char *path, const char *member, const char *hardlink) 
     if (hardlink) archive_entry_set_hardlink(e, hardlink);
     assert(archive_write_header(a, e) == ARCHIVE_OK);
     archive_entry_free(e);
+    assert(archive_write_free(a) == ARCHIVE_OK);
+}
+static void conflicting_fixture(const char *path) {
+    struct archive *a = archive_write_new();
+    archive_write_set_format_pax_restricted(a);
+    archive_write_add_filter_gzip(a);
+    assert(archive_write_open_filename(a, path) == ARCHIVE_OK);
+    const char *members[] = {"parent", "parent/child"};
+    for (size_t i = 0; i < 2; i++) {
+        struct archive_entry *e = archive_entry_new();
+        archive_entry_set_pathname(e, members[i]);
+        archive_entry_set_filetype(e, AE_IFREG);
+        archive_entry_set_perm(e, 0644);
+        archive_entry_set_size(e, 0);
+        assert(archive_write_header(a, e) == ARCHIVE_OK);
+        archive_entry_free(e);
+    }
     assert(archive_write_free(a) == ARCHIVE_OK);
 }
 int main(int argc, char **argv) {
@@ -78,9 +106,34 @@ int main(int argc, char **argv) {
     snprintf(path, sizeof path, "%s/environments", temp);
     assert(children(path) == 2);
     for (int i = 0; i < 5; i++) {
-        assert(afk_managed_install(c, alpine, argv[1], "Cancelled", (struct progress){NULL, cancel}, &failed, err, sizeof err) < 0);
-        assert(!failed.id[0] && children(path) == 2);
+        int remaining = 1 + i * 100;
+        assert(afk_managed_install(c, alpine, argv[1], "Cancelled", (struct progress){&remaining, cancel}, &failed, err, sizeof err) < 0);
+        assert(remaining == 0 && strstr(err, "Rootfs conversion failed"));
+        assert(!failed.id[0] && rows(c) == 2 && children(path) == 2);
     }
+    // Exercise a real interrupted conversion, not ordinary rollback. The row
+    // remains visible after reopening; the existing boot validator must refuse
+    // its uncommitted fakefs schema. No automatic cleanup/recovery is claimed.
+    afk_catalog_close(c);
+    pid_t child = fork(); assert(child >= 0);
+    if (!child) {
+        struct afk_catalog *child_catalog = NULL;
+        assert(afk_catalog_open(temp, &child_catalog, err, sizeof err) == 0);
+        int remaining = 100;
+        afk_managed_install(child_catalog, alpine, argv[1], "Interrupted",
+            (struct progress){&remaining, interrupt_import}, NULL, err, sizeof err);
+        _exit(78);
+    }
+    int status; assert(waitpid(child, &status, 0) == child);
+    assert(WIFEXITED(status) && WEXITSTATUS(status) == 77);
+    assert(afk_catalog_open(temp, &c, err, sizeof err) == 0);
+    struct afk_env_record interrupted = {0};
+    assert(afk_catalog_list(c, find_interrupted, &interrupted) == 3);
+    assert(interrupted.id[0] && children(path) == 3);
+    assert(afk_ios_boot_root(c, interrupted.id, root, err, sizeof err) < 0 && !root[0]);
+    // Explicit test-only deletion of the disposable residue, not app recovery.
+    assert(afk_store_delete(c, interrupted.id, err, sizeof err) == 0);
+    assert(rows(c) == 2 && children(path) == 2);
     char fixture_path[4096]; snprintf(fixture_path, sizeof fixture_path, "%s/input.tar.gz", temp);
     FILE *src = fopen(argv[1], "rb"); assert(src);
     f = fopen(fixture_path, "wb"); assert(f);
@@ -98,6 +151,11 @@ int main(int argc, char **argv) {
     assert(afk_managed_install(c, alpine, fixture_path, "Bad checksum", (struct progress){0}, &failed, err, sizeof err) < 0);
     struct afk_distro pinned = *alpine;
     char digest[65]; pinned.sha256 = digest;
+    conflicting_fixture(fixture_path);
+    assert(afk_sha256_file_hex(fixture_path, digest, err, sizeof err) == 0);
+    assert(afk_managed_install(c, &pinned, fixture_path, "Conversion error", (struct progress){0}, &failed, err, sizeof err) == AFK_ENV_ERR_STORAGE);
+    assert(strstr(err, "Rootfs conversion failed") && !failed.id[0]);
+    assert(rows(c) == 2 && children(path) == 2);
     const char *unsafe[] = {"../escape", "/absolute", "a/../../escape"};
     for (size_t i = 0; i < sizeof unsafe / sizeof *unsafe; i++) {
         fixture(fixture_path, unsafe[i], NULL);
