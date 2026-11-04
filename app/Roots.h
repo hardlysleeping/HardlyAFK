@@ -24,6 +24,13 @@ NS_ASSUME_NONNULL_BEGIN
 @property NSString *defaultRoot;
 @property (readonly) BOOL wantsVersionFile;
 - (NSURL *)rootUrl:(NSString *)name;
+// Selection is next-process only. nil boot URL means fail closed, never fallback.
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)managedEnvironments:(NSError **)error;
+- (BOOL)selectManagedEnvironment:(NSString *)identifier error:(NSError **)error;
+// Creates an independent fakefs from the verified bundled Alpine; no live mount changes.
+- (BOOL)createManagedAlpineNamed:(NSString *)name error:(NSError **)error;
+- (nullable NSURL *)bootRootURL:(NSError **)error;
+@property (readonly) NSString *managedSelection;
 - (BOOL)importRootFromArchive:(NSURL *)archive name:(NSString *)name error:(NSError **)error progressReporter:(id<ProgressReporter> _Nullable)progress;
 - (BOOL)exportRootNamed:(NSString *)name toArchive:(NSURL *)archive error:(NSError **)error progressReporter:(id<ProgressReporter> _Nullable)progress;
 - (BOOL)destroyRootNamed:(NSString *)name error:(NSError **)error;

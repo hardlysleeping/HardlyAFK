@@ -12,6 +12,14 @@
 #import "UIViewController+Extras.h"
 #import "NSObject+SaneKVO.h"
 
+@interface ManagedEnvironmentsViewController : UITableViewController
+@property (nonatomic, copy) NSArray<NSDictionary<NSString *, NSString *> *> *environments;
+@property (nonatomic, copy) NSString *loadError;
+@property (nonatomic) BOOL creating;
+- (void)reloadEnvironments;
+- (void)createEnvironment;
+@end
+
 @interface RootsTableViewController ()
 @end
 
@@ -30,6 +38,11 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    UIButton *managed = [UIButton buttonWithType:UIButtonTypeSystem];
+    managed.frame = CGRectMake(0, 0, self.tableView.bounds.size.width, 52);
+    [managed setTitle:@"Managed Environments…" forState:UIControlStateNormal];
+    [managed addTarget:self action:@selector(showManagedEnvironments) forControlEvents:UIControlEventTouchUpInside];
+    self.tableView.tableHeaderView = managed;
     [Roots.instance observe:@[@"roots", @"defaultRoot"]
                     options:0 owner:self usingBlock:^(typeof(self) self) {
         [self.tableView reloadData];
@@ -59,6 +72,11 @@
 - (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender {
     RootDetailViewController *vc = segue.destinationViewController;
     vc.rootName = Roots.instance.roots[self.tableView.indexPathForSelectedRow.row];
+}
+
+- (void)showManagedEnvironments {
+    [self.navigationController pushViewController:[[ManagedEnvironmentsViewController alloc]
+        initWithStyle:UITableViewStyleGrouped] animated:YES];
 }
 
 - (IBAction)importFilesystem:(id)sender {
@@ -237,4 +255,102 @@
     self.exportURL = nil; // get it deleted
 }
 
+@end
+
+@implementation ManagedEnvironmentsViewController
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    self.title = @"Managed Environments";
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
+        initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(createEnvironment)];
+    self.navigationItem.rightBarButtonItem.enabled = !self.creating;
+    [self reloadEnvironments];
+}
+- (void)reloadEnvironments {
+    NSError *error = nil;
+    self.environments = [Roots.instance managedEnvironments:&error];
+    self.loadError = error.localizedDescription;
+    [self.tableView reloadData];
+}
+- (void)createEnvironment {
+    if (self.creating) return;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Create Alpine environment"
+        message:@"Uses the bundled, SHA-256 verified Alpine 3.24 ARM64 archive. Creates independent fakefs data and metadata, not a copy of your running guest. No download, migration or live switch. Keep the app open until creation finishes."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.placeholder = @"Environment name";
+        field.text = @"Alpine";
+        field.autocapitalizationType = UITextAutocapitalizationTypeWords;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Create" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *name = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (!name.length) {
+            [alert dismissViewControllerAnimated:YES completion:^{
+                [self presentError:[NSError errorWithDomain:@"HardlyAFK.Environments" code:1
+                    userInfo:@{NSLocalizedDescriptionKey: @"Enter an environment name"}] title:@"Creation refused"];
+            }];
+            return;
+        }
+        self.creating = YES;
+        self.navigationItem.rightBarButtonItem.enabled = NO;
+        UIAlertController *busy = [UIAlertController alertControllerWithTitle:@"Creating Alpine…"
+            message:@"Verifying archive and converting to fakefs. The running guest and next-launch selection stay unchanged."
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert dismissViewControllerAnimated:YES completion:^{
+            [self presentViewController:busy animated:YES completion:^{
+                dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                    NSError *error = nil;
+                    BOOL success = [Roots.instance createManagedAlpineNamed:name error:&error];
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        self.creating = NO;
+                        self.navigationItem.rightBarButtonItem.enabled = YES;
+                        [self reloadEnvironments];
+                        [busy dismissViewControllerAnimated:YES completion:^{
+                            if (!success) [self presentError:error title:@"Creation failed"];
+                        }];
+                    });
+                });
+            }];
+        }];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return self.environments.count + 1;
+}
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    return self.loadError ?: @"Checkmark = next launch, not the running guest. Selection never stops or switches Linux. Fully close the app before relaunching. Tap + to create an independent Alpine environment from the verified bundled archive. Legacy filesystems remain separate and unchanged. No migration, delete, export or network installer is provided.";
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    NSString *identifier = @"";
+    if (indexPath.row == 0) {
+        cell.textLabel.text = @"Legacy default filesystem";
+        cell.detailTextLabel.text = Roots.instance.defaultRoot;
+    } else {
+        NSDictionary *row = self.environments[indexPath.row - 1];
+        identifier = row[@"id"];
+        cell.textLabel.text = row[@"name"];
+        cell.detailTextLabel.text = row[@"detail"];
+    }
+    cell.accessoryType = [identifier isEqualToString:Roots.instance.managedSelection] ?
+        UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
+    return cell;
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    NSString *identifier = indexPath.row ? self.environments[indexPath.row - 1][@"id"] : @"";
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Use on next launch?"
+        message:@"The current guest keeps running unchanged. Fully close HardlyAFK and reopen it to boot this selection. No automatic shutdown or safe-stop is claimed."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Select for next launch" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSError *error = nil;
+        if (![Roots.instance selectManagedEnvironment:identifier error:&error])
+            [self presentError:error title:@"Selection refused"];
+        [self.tableView reloadData];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
 @end
